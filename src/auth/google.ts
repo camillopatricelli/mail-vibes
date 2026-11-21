@@ -71,10 +71,10 @@ function loadGis(): Promise<Gis> {
     const s = document.createElement('script')
     s.src = 'https://accounts.google.com/gsi/client'
     s.async = true
-    s.onload = () => (window.google ? resolve(window.google) : reject(new Error('Google sign-in failed to load')))
+    s.onload = () => (window.google ? resolve(window.google) : reject(new Error(i18n.t('errors.googleLoad'))))
     s.onerror = () => {
       gisPromise = undefined
-      reject(new Error('Google sign-in could not be loaded: check your connection'))
+      reject(new Error(i18n.t('errors.googleLoad')))
     }
     document.head.appendChild(s)
   })
@@ -106,12 +106,12 @@ async function requestToken(opts: { prompt: string; loginHint?: string }): Promi
       login_hint: opts.loginHint,
       include_granted_scopes: true,
       callback: (r) => {
-        if (r.error || !r.access_token) reject(new Error(r.error_description || r.error || 'Google sign-in failed'))
+        if (r.error || !r.access_token) reject(new Error(r.error_description || r.error || i18n.t('errors.googleSignIn')))
         else resolve(r)
       },
       error_callback: (e) => {
         if (e.type === 'popup_closed') reject(new UserCancelledError())
-        else if (e.type === 'popup_failed_to_open') reject(new Error('The sign-in window was blocked. Allow pop-ups for this site and try again.'))
+        else if (e.type === 'popup_failed_to_open') reject(new Error(i18n.t('errors.popupBlocked')))
         else reject(new Error(e.message || e.type))
       },
     })
@@ -130,9 +130,9 @@ async function userInfo(accessToken: string): Promise<UserInfo> {
   try {
     res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${accessToken}` } })
   } catch {
-    throw new Error('Network error: check your connection')
+    throw new Error(i18n.t('errors.network'))
   }
-  if (!res.ok) throw new Error(`Could not read the Google profile (${res.status})`)
+  if (!res.ok) throw new Error(i18n.t('errors.googleProfile', { status: res.status }))
   return (await res.json()) as UserInfo
 }
 
@@ -156,7 +156,7 @@ export async function addGoogleAccount(): Promise<boolean> {
     throw e
   }
   const missing = missingScopes(r)
-  if (missing.length) throw new Error('Access to Gmail was not granted. Add the account again and tick every permission.')
+  if (missing.length) throw new Error(i18n.t('errors.gmailNotGranted'))
   const info = await userInfo(r.access_token!)
   const id = `google:${info.sub}`
   store(id, r)
@@ -187,8 +187,8 @@ export async function reauthGoogle(accountId: string): Promise<boolean> {
     throw e
   }
   const info = await userInfo(r.access_token!)
-  if (`google:${info.sub}` !== accountId) throw new Error(`You signed in as ${info.email}, not ${account.email}.`)
-  if (missingScopes(r).length) throw new Error('Access to Gmail was not granted.')
+  if (`google:${info.sub}` !== accountId) throw new Error(i18n.t('errors.wrongAccount', { email: info.email, expected: account.email }))
+  if (missingScopes(r).length) throw new Error(i18n.t('errors.gmailNotGranted'))
   store(accountId, r)
   useStatus.getState().clearError(accountId)
   return true

@@ -580,7 +580,7 @@ export const gmail: MailProvider = {
 
   async move(accountId, ids, dest) {
     if (typeof dest !== 'string') {
-      if (!('folderId' in dest)) throw new ApiError('Cannot move messages there', 400)
+      if (!('folderId' in dest)) throw new ApiError(i18n.t('errors.cannotMove'), 400)
       return modify(accountId, ids, [dest.folderId], ['INBOX', 'SPAM'])
     }
     switch (dest) {
@@ -596,7 +596,7 @@ export const gmail: MailProvider = {
         await perMessage(accountId, ids, 'untrash')
         return modify(accountId, ids, ['INBOX'], ['SPAM'])
       default:
-        throw new ApiError(`Cannot move messages to ${dest}`, 400)
+        throw new ApiError(i18n.t('errors.cannotMove'), 400)
     }
   },
 

@@ -1,5 +1,6 @@
 import { AuthRequiredError, getGraphToken } from '../auth/msal'
 import { useStatus } from '../status/store'
+import i18n from '../i18n'
 
 /**
  * Microsoft Graph client. Every call reports its outcome to the status store, so per-account
@@ -20,7 +21,7 @@ export class ApiError extends Error {
 }
 
 export class NetworkError extends Error {
-  constructor(message = 'Network error: check your connection') {
+  constructor(message = i18n.t('errors.network')) {
     super(message)
     this.name = 'NetworkError'
   }

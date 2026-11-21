@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
+import i18n from '../i18n'
 import {
   defaultSettings,
   exportSettingsJson,
@@ -72,9 +73,11 @@ describe('settings export/import', () => {
     expect(parseSettingsJson(exportSettingsJson(sample))).toEqual(sample)
   })
 
+  beforeAll(() => i18n.changeLanguage('en'))
+
   it('rejects other files', () => {
-    expect(() => parseSettingsJson('not json')).toThrow('invalid JSON')
-    expect(() => parseSettingsJson('{"format":"x"}')).toThrow('wrong file format')
+    expect(() => parseSettingsJson('not json')).toThrow('not valid JSON')
+    expect(() => parseSettingsJson('{"format":"x"}')).toThrow('not a Mail Vibes settings file')
   })
 
   it('drops invalid values and dangling defaults without touching the shared defaults', () => {

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import type { LanguagePref } from '../i18n'
 import { microsoftTenants, type MicrosoftTenantConfig } from '../config'
+import i18n from '../i18n'
 
 /**
  * Settings are the ONLY app data persisted on the device (plus the auth libraries' token caches).
@@ -228,13 +229,13 @@ export function parseSettingsJson(text: string): Settings {
   try {
     raw = JSON.parse(text)
   } catch {
-    throw new Error('invalid JSON')
+    throw new Error(i18n.t('errors.importJson'))
   }
   const r = raw as { format?: unknown; version?: unknown; settings?: unknown }
-  if (!r || r.format !== SETTINGS_FORMAT) throw new Error('wrong file format')
-  if (r.version !== SETTINGS_VERSION) throw new Error(`unsupported version ${String(r.version)}`)
+  if (!r || r.format !== SETTINGS_FORMAT) throw new Error(i18n.t('errors.importFormat'))
+  if (r.version !== SETTINGS_VERSION) throw new Error(i18n.t('errors.importVersion', { version: String(r.version) }))
   const s = r.settings as Partial<Settings> | undefined
-  if (!s || typeof s !== 'object') throw new Error('missing settings')
+  if (!s || typeof s !== 'object') throw new Error(i18n.t('errors.importFormat'))
 
   const out: Settings = { ...defaultSettings, accounts: [], defaults: {}, imagesAllowedFrom: [], customTenants: [], tenantNames: {}, hiddenCalendars: [], hiddenTaskLists: [] }
   if (s.language === 'auto' || s.language === 'en' || s.language === 'it') out.language = s.language

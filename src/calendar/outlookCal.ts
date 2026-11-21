@@ -3,6 +3,7 @@ import { fromGraph, toGraph, type GraphRecurrence } from '../lib/recurrence'
 import { graph, type GraphPage } from '../providers/graph'
 import { addDays, localDate, startOfDay, toDateKey, toTimeKey } from './dates'
 import { findMeetingLink, type CalEvent, type CalendarInfo, type CalendarProvider, type EventDraft, type Response } from './types'
+import i18n from '../i18n'
 
 /** Outlook calendars via Microsoft Graph. */
 
@@ -270,7 +271,7 @@ export const outlookCalendar: CalendarProvider = {
       body: { subject: title, startDateTime: new Date(start).toISOString(), endDateTime: new Date(end).toISOString() },
     })
     const url = m.joinWebUrl ?? m.joinUrl
-    if (!url) throw new Error('Teams did not return a meeting link')
+    if (!url) throw new Error(i18n.t('errors.teamsLink'))
     return url
   },
 }

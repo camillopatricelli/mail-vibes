@@ -1,3 +1,5 @@
+import i18n from '../i18n'
+
 /**
  * Place suggestions for event locations, from Google Maps (Places API), with the user's own key.
  * The Maps script is loaded only when a key is set and the location field is used.
@@ -36,7 +38,7 @@ function loadPlaces(key: string): Promise<PlacesLib> {
   const lib = new Promise<PlacesLib>((resolve, reject) => {
     const ready = () => {
       const importLibrary = w.google?.maps?.importLibrary
-      if (!importLibrary) return reject(new Error('Google Maps did not load'))
+      if (!importLibrary) return reject(new Error(i18n.t('errors.mapsLoad')))
       importLibrary('places').then((l) => resolve(l as PlacesLib), reject)
     }
     if (w.google?.maps?.importLibrary) return ready()
@@ -48,7 +50,7 @@ function loadPlaces(key: string): Promise<PlacesLib> {
     const s = document.createElement('script')
     s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&loading=async&v=weekly&callback=__mailVibesMaps`
     s.async = true
-    s.onerror = () => reject(new Error('Google Maps did not load'))
+    s.onerror = () => reject(new Error(i18n.t('errors.mapsLoad')))
     document.head.appendChild(s)
   })
   loading = { key, lib }
@@ -65,7 +67,7 @@ export async function newPlacesSession(key: string) {
 }
 
 export async function suggestPlaces(key: string, input: string, session: object | undefined, language: string): Promise<PlaceSuggestion[]> {
-  if (authFailed) throw new Error('Google Maps refused the key')
+  if (authFailed) throw new Error(i18n.t('errors.mapsKey'))
   const lib = await loadPlaces(key)
   const r = await lib.AutocompleteSuggestion.fetchAutocompleteSuggestions({ input, sessionToken: session, language })
   return r.suggestions

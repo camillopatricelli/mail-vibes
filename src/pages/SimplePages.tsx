@@ -48,7 +48,7 @@ export function PrivacyPage() {
   return (
     <article className="prose">
       <h1 className="headline-small page-title">{t('privacy.title')}</h1>
-      {(['p1', 'p2', 'p3', 'p4', 'p5'] as const).map((k) => (
+      {(['p1', 'p2', 'p3', 'p6', 'p7', 'p4', 'p5'] as const).map((k) => (
         <p key={k} className="body-large">
           {t(`privacy.${k}`)}
         </p>

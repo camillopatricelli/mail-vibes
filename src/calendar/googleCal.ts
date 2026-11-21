@@ -3,6 +3,7 @@ import { parseRRule, toRRule } from '../lib/recurrence'
 import { addDays, localDate, startOfDay, toDateKey } from './dates'
 import { textToHtml } from './outlookCal'
 import { findMeetingLink, type CalEvent, type CalendarInfo, type CalendarProvider, type EventDraft, type Response } from './types'
+import i18n from '../i18n'
 
 /** Google Calendar via the Calendar REST API (and the Meet REST API for stand-alone Meet links). */
 
@@ -251,7 +252,7 @@ export const googleCalendar: CalendarProvider = {
 
   async createMeetingLink(accountId) {
     const space = await google<{ meetingUri?: string }>(accountId, 'https://meet.googleapis.com/v2/spaces', { method: 'POST', body: {} })
-    if (!space.meetingUri) throw new Error('Google Meet did not return a meeting link')
+    if (!space.meetingUri) throw new Error(i18n.t('errors.meetLink'))
     return space.meetingUri
   },
 }

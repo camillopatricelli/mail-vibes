@@ -18,6 +18,7 @@ import type {
 } from './types'
 import { SNOOZE_FOLDER } from './snooze'
 import { escapeHtml, insertIntoBody } from './html'
+import i18n from '../i18n'
 
 /** Outlook mail via Microsoft Graph. */
 
@@ -365,8 +366,8 @@ export const outlook: MailProvider = {
   },
 
   async move(accountId, ids, dest) {
-    if (typeof dest === 'object' && !('folderId' in dest)) throw new ApiError('Cannot move messages there', 400)
-    if (dest === 'snoozed' || dest === 'scheduled') throw new ApiError('Cannot move messages there', 400)
+    if (typeof dest === 'object' && !('folderId' in dest)) throw new ApiError(i18n.t('errors.cannotMove'), 400)
+    if (dest === 'snoozed' || dest === 'scheduled') throw new ApiError(i18n.t('errors.cannotMove'), 400)
     const destinationId = typeof dest === 'string' ? (dest === 'starred' ? 'inbox' : wellKnown[dest]) : dest.folderId
     await batch(accountId, ids.map((id) => ({ method: 'POST', url: `/me/messages/${id}/move`, body: { destinationId } })))
   },
@@ -519,9 +520,9 @@ export const outlook: MailProvider = {
             body: file.slice(start, end),
           })
         } catch {
-          throw new ApiError('Network error while uploading the attachment', 0)
+          throw new ApiError(i18n.t('errors.uploadNetwork'), 0)
         }
-        if (!res.ok) throw new ApiError(`Attachment upload failed (${res.status})`, res.status)
+        if (!res.ok) throw new ApiError(i18n.t('errors.uploadFailed', { status: res.status }), res.status)
         onProgress?.(end / file.size)
       }
     }
