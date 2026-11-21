@@ -38,9 +38,9 @@ export function useCalendars() {
 export type ShownEvent = CalEvent & { color: string; accountColor: string; calendarName: string; canEdit: boolean }
 
 /** Events of every visible calendar between `from` and `to`, merged and sorted. */
-export function useEvents(from: number, to: number) {
+export function useEvents(from: number, to: number, opts: { minRefreshSec?: number } = {}) {
   const { accounts, calendars, errors: calErrors, isLoading: calLoading } = useCalendars()
-  const pollSec = useSettings((s) => s.pollIntervalSec)
+  const pollSec = Math.max(useSettings((s) => s.pollIntervalSec), opts.minRefreshSec ?? 0)
   const shown = calendars.filter((c) => !c.hidden)
   const results = useQueries({
     queries: shown.map((c) => ({
@@ -56,11 +56,18 @@ export function useEvents(from: number, to: number) {
     results.forEach((r, i) => {
       const c = shown[i]
       for (const e of (r.data as CalEvent[] | undefined) ?? [])
-        out.push({ ...e, color: c.color ?? c.accountColor, accountColor: c.accountColor, calendarName: c.name, canEdit: c.canEdit })
+        out.push({
+          ...e,
+          reminders: e.remindersDefault ? (c.defaultReminders ?? []) : e.reminders,
+          color: c.color ?? c.accountColor,
+          accountColor: c.accountColor,
+          calendarName: c.name,
+          canEdit: c.canEdit,
+        })
     })
     return out.sort((a, b) => a.start - b.start || b.end - a.end)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results.map((r) => r.dataUpdatedAt).join(','), shown.map((c) => calendarKey(c.accountId, c.id) + c.color).join(',')])
+  }, [results.map((r) => r.dataUpdatedAt).join(','), shown.map((c) => calendarKey(c.accountId, c.id) + c.color + (c.defaultReminders ?? []).join('.')).join(',')])
 
   // One error per account is enough (a failing account usually fails for every calendar).
   const errors: { account: AccountSettings; error: Error; refetch: () => unknown }[] = [...calErrors]

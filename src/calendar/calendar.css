@@ -166,3 +166,26 @@
 .scope-options { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 8px; }
 .scope-options--inline { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 0; }
 .scope-options--inline p { flex-basis: 100%; margin: 0; }
+
+/* Repeat, reminders and location fields (events and tasks) */
+.repeat-field, .reminders-field { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; flex: 1; min-width: 0; }
+.repeat-field > .select { max-width: 100%; }
+.repeat-field p { margin: 0; }
+.repeat-field__custom { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--md-sys-shape-sm); background: var(--md-sys-color-surface-container); }
+.repeat-field__line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.repeat-field__num { width: 4.5em; flex: none !important; }
+.repeat-field__days { display: flex; flex-wrap: wrap; gap: 4px; }
+.day-toggle { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--md-sys-color-outline); background: none; color: var(--md-sys-color-on-surface); font: inherit; font-size: 13px; cursor: pointer; }
+.day-toggle.is-on { background: var(--md-sys-color-primary); border-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+.day-toggle:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
+.reminders-field__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.reminders-field__row .select { flex: none !important; }
+.location-field { position: relative; display: flex; flex-direction: column; }
+.location-field .text-field { flex: none; width: 100%; }
+.location-field p { margin: 4px 0 0; }
+.suggestions.location-field__list { left: 0; }
+.suggestions button .icon { vertical-align: -3px; color: var(--md-sys-color-on-surface-variant); }
+.location-field__credit { padding: 4px 16px 2px; text-align: right; }
+.task-dates { flex-wrap: wrap; }
+.task-dates__field { display: flex; flex-direction: column; gap: 2px; }
+.task-dates__hint { margin: -8px 0 0 40px; }

@@ -1,3 +1,4 @@
+import type { Recurrence } from '../lib/recurrence'
 import type { Address } from '../mail/types'
 
 /** Provider-neutral calendar model. Outlook (Graph) and Google Calendar adapters map to these. */
@@ -10,6 +11,8 @@ export interface CalendarInfo {
   color?: string
   canEdit: boolean
   isDefault: boolean
+  /** Reminders (minutes before the start) of events that use the calendar's defaults */
+  defaultReminders?: number[]
 }
 
 export type Response = 'accepted' | 'tentative' | 'declined' | 'needsAction' | 'organizer' | 'none'
@@ -43,19 +46,22 @@ export interface CalEvent {
   seriesId?: string
   cancelled: boolean
   webLink?: string
+  /** Pop-up reminders, minutes before the start (resolved from the calendar's defaults when `remindersDefault`) */
+  reminders: number[]
+  /** The event follows its calendar's default reminders */
+  remindersDefault?: boolean
+  /** Google: reminders sent by email (kept when the pop-up ones are edited) */
+  emailReminders?: number[]
 }
-
-export type Repeat = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly'
 
 /** A recurring series as a whole (its first occurrence and its rule). */
 export interface SeriesInfo {
   start: number
   end: number
   allDay: boolean
-  /** 'custom' for rules the editor cannot show (e.g. every 2 weeks on Mon and Thu): kept as they are */
-  repeat: Repeat | 'custom'
-  /** Local midnight of the last day of the series, if it ends on a date */
-  until?: number
+  recurrence: Recurrence | null
+  /** False when the rule has parts the editor can't show (kept unless the rule is changed) */
+  exact: boolean
 }
 
 /** Online meeting for a new event: none, Teams from a Microsoft account, or Meet from a Google account. */
@@ -70,10 +76,12 @@ export interface EventDraft {
   /** Plain text; only sent when changed, so rich invitation bodies are not overwritten */
   description?: string
   attendees: Address[]
-  /** On create: the repeat rule. On update: only sent when set (series edits). 'custom' keeps the rule. */
-  repeat: Repeat | 'custom'
-  /** Last day of a repeating event (local midnight); undefined = no end */
-  repeatUntil?: number
+  /** The repeat rule (null = does not repeat). On update: only sent when changed. */
+  recurrence?: Recurrence | null
+  /** Pop-up reminders, minutes before the start. On update: only sent when changed. */
+  reminders?: number[]
+  /** Google: email reminders to keep alongside the pop-up ones */
+  emailReminders?: number[]
   /** A meeting link created in another account, to add to the event */
   externalMeeting?: { url: string; provider: MeetingProvider }
   /** Ask the event's own provider to add Teams (Microsoft) or Meet (Google) */
@@ -81,6 +89,10 @@ export interface EventDraft {
 }
 
 export interface CalendarProvider {
+  /** How many reminders an event can have */
+  readonly maxReminders: number
+  /** The longest reminder lead, in minutes */
+  readonly maxReminderMinutes: number
   calendars(accountId: string): Promise<CalendarInfo[]>
   events(accountId: string, calendarId: string, from: number, to: number): Promise<CalEvent[]>
   /** Events between `from` and `to` whose title, place or description contain the text */

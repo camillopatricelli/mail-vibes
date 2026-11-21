@@ -27,11 +27,16 @@ export function RecipientField({
   value,
   onChange,
   autoFocus,
+  placeholder,
+  boxed,
 }: {
   label: string
   value: Address[]
   onChange: (v: Address[]) => void
   autoFocus?: boolean
+  placeholder?: string
+  /** Drawn as an outlined box (forms) instead of a line (composer) */
+  boxed?: boolean
 }) {
   const { t } = useTranslation()
   const [text, setText] = useState('')
@@ -65,8 +70,8 @@ export function RecipientField({
   }
 
   return (
-    <div className="recipient-field">
-      <span className="recipient-field__label body-medium muted">{label}</span>
+    <div className={['recipient-field', boxed && 'recipient-field--boxed'].filter(Boolean).join(' ')}>
+      {!boxed && <span className="recipient-field__label body-medium muted">{label}</span>}
       <div className="recipient-field__chips">
         {value.map((a, i) => (
           <span key={`${a.email}-${i}`} className={['recipient-chip', !isValidEmail(a.email) && 'is-invalid'].filter(Boolean).join(' ')} title={formatAddress(a)}>
@@ -81,6 +86,7 @@ export function RecipientField({
           value={text}
           autoFocus={autoFocus}
           aria-label={label}
+          placeholder={placeholder}
           onChange={(e) => {
             setText(e.target.value)
             setActive(0)

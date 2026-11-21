@@ -1,4 +1,5 @@
-import { startOfDay, toDateKey } from '../calendar/dates'
+import { startOfDay, toDateKey, toTimeKey } from '../calendar/dates'
+import { fromGraph, toGraph, type GraphRecurrence } from '../lib/recurrence'
 import { ApiError, graph, type GraphPage } from '../providers/graph'
 import { findMailUrl, linkOf, mailNoteLine, parseMailUrl, type MailLink } from './mailLink'
 import { COMPLETED_DAYS, type Task, type TaskDraft, type TaskList, type TaskProvider } from './types'
@@ -14,6 +15,10 @@ interface GTask {
   title?: string
   body?: { content?: string; contentType?: string }
   dueDateTime?: GDateTime
+  startDateTime?: GDateTime
+  reminderDateTime?: GDateTime
+  isReminderOn?: boolean
+  recurrence?: GraphRecurrence | null
   status?: string
   completedDateTime?: GDateTime
   importance?: string
@@ -37,8 +42,17 @@ function mailOf(t: GTask, notes: string): MailLink | undefined {
   return findMailUrl(notes)
 }
 
+/** To Do keeps a day, stored as midnight in some time zone and returned in UTC (e.g. 23:00 the
+ * day before for Rome, 00:00 for UTC). Noon of that instant falls on the intended day anywhere
+ * within ±11 hours of UTC. */
+const dayOf = (dt: GDateTime | undefined) => {
+  const t = utc(dt)
+  return t === undefined ? undefined : startOfDay(t + 12 * 3_600_000)
+}
+
 function toTask(accountId: string, listId: string, t: GTask): Task {
-  const due = utc(t.dueDateTime)
+  const due = dayOf(t.dueDateTime)
+  const start = dayOf(t.startDateTime)
   const notes = t.body?.contentType === 'html' ? htmlToText(t.body.content ?? '') : (t.body?.content ?? '')
   return {
     accountId,
@@ -46,10 +60,10 @@ function toTask(accountId: string, listId: string, t: GTask): Task {
     id: t.id,
     title: t.title ?? '',
     notes: notes.trim(),
-    // To Do keeps a day, stored as midnight in some time zone and returned in UTC (e.g. 23:00 the
-    // day before for Rome, 00:00 for UTC). Noon of that instant falls on the intended day anywhere
-    // within ±11 hours of UTC.
-    due: due === undefined ? undefined : startOfDay(due + 12 * 3_600_000),
+    due,
+    start: start !== undefined && start !== due ? start : undefined,
+    reminder: t.isReminderOn ? utc(t.reminderDateTime) : undefined,
+    recurrence: fromGraph(t.recurrence, due ?? Date.now()).rule ?? undefined,
     completed: t.status === 'completed',
     completedAt: utc(t.completedDateTime),
     important: t.importance === 'high',
@@ -69,7 +83,17 @@ function body(d: Partial<TaskDraft>) {
   const out: Record<string, unknown> = {}
   if (d.title !== undefined) out.title = d.title
   if (d.notes !== undefined) out.body = { content: d.notes, contentType: 'text' }
-  if (d.due !== undefined) out.dueDateTime = d.due === null ? null : { dateTime: `${toDateKey(d.due)}T00:00:00`, timeZone: timeZone() }
+  const day = (v: number) => ({ dateTime: `${toDateKey(v)}T00:00:00`, timeZone: timeZone() })
+  if (d.due !== undefined) out.dueDateTime = d.due === null ? null : day(d.due)
+  if (d.start !== undefined) out.startDateTime = d.start === null ? null : day(d.start)
+  if (d.reminder !== undefined) {
+    out.isReminderOn = d.reminder !== null
+    if (d.reminder !== null) out.reminderDateTime = { dateTime: `${toDateKey(d.reminder)}T${toTimeKey(d.reminder)}:00`, timeZone: timeZone() }
+  }
+  if (d.recurrence !== undefined) {
+    const anchor = d.due ?? d.start ?? startOfDay(Date.now())
+    out.recurrence = d.recurrence === null ? null : toGraph(d.recurrence, anchor, 1)
+  }
   return out
 }
 
@@ -109,6 +133,8 @@ async function firstAccepted<T>(key: string, attempts: (() => Promise<T>)[]): Pr
 }
 
 export const todo: TaskProvider = {
+  repeatsItself: true,
+
   async lists(accountId) {
     type GList = { id: string; displayName?: string; wellknownListName?: string }
     const lists: GList[] = []
@@ -155,7 +181,7 @@ export const todo: TaskProvider = {
     const make = (notes: string, extra: Record<string, unknown> = {}) =>
       graph<GTask>(accountId, tasksUrl(listId), {
         method: 'POST',
-        body: { ...body({ title: draft.title, ...(notes && { notes }), ...(draft.due !== null && { due: draft.due }) }), ...extra },
+        body: { ...body({ ...draft, notes, due: draft.due ?? undefined, start: draft.start ?? undefined, reminder: draft.reminder ?? undefined, recurrence: draft.recurrence ?? undefined }), ...extra },
       })
     if (!mail) return toTask(accountId, listId, await make(draft.notes))
     let t: GTask

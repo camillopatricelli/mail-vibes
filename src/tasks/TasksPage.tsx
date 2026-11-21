@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { addDays, fromDateKey, startOfDay, toDateKey } from '../calendar/dates'
+import { addDays, fromDateKey, startOfDay, toDateKey, toTimeKey, withTime } from '../calendar/dates'
+import { RecurrenceField } from '../calendar/FormFields'
 import { dateLocale } from '../calendar/format'
+import { describe, sameRule, type Recurrence } from '../lib/recurrence'
 import { navigate, useLocation } from '../lib/router'
 import { accountLabel, accountLongLabel, useSettings } from '../settings/store'
 import { AccountBadge, Button, Icon, IconButton } from '../ui/components'
@@ -20,6 +22,11 @@ export function dueLabel(due: number, t: (k: string) => string) {
   if (due === addDays(today, -1)) return t('tasks.yesterday')
   const sameYear = new Date(due).getFullYear() === new Date(today).getFullYear()
   return new Intl.DateTimeFormat(dateLocale(), { weekday: 'short', day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) }).format(due)
+}
+
+/** "Today 18:00", "Mon 24 Nov 9:00" */
+function reminderLabel(at: number, t: (k: string) => string) {
+  return `${dueLabel(startOfDay(at), t)} ${toTimeKey(at)}`
 }
 
 export function TaskRow({ task, onOpen, showList }: { task: ShownTask; onOpen: (t: ShownTask) => void; showList?: boolean }) {
@@ -42,12 +49,23 @@ export function TaskRow({ task, onOpen, showList }: { task: ShownTask; onOpen: (
       <button type="button" className="task-row__body" onClick={() => onOpen(task)}>
         <span className="task-row__title body-large">{task.title || t('tasks.noTitle')}</span>
         {notes && <span className="task-row__notes body-small muted">{notes}</span>}
-        {(task.due !== undefined || showList) && (
+        {(task.due !== undefined || task.reminder !== undefined || showList) && (
           <span className="task-row__meta">
             {task.due !== undefined && (
               <span className={['task-chip label-medium', overdue && 'is-overdue'].filter(Boolean).join(' ')}>
                 <Icon name="event" size={14} />
-                {dueLabel(task.due, t)}
+                {task.start !== undefined ? `${dueLabel(task.start, t)} – ${dueLabel(task.due, t)}` : dueLabel(task.due, t)}
+              </span>
+            )}
+            {task.reminder !== undefined && !task.completed && (
+              <span className="task-chip label-medium" title={t('tasks.reminder')}>
+                <Icon name="notifications" size={14} />
+                {reminderLabel(task.reminder, t)}
+              </span>
+            )}
+            {task.recurrence && (
+              <span className="task-chip label-medium" title={describe(task.recurrence, task.due ?? Date.now(), t, dateLocale())}>
+                <Icon name="repeat" size={14} />
               </span>
             )}
             {showList && (
@@ -195,6 +213,9 @@ export function TaskDialog({ task, onClose }: { task: ShownTask; onClose: () => 
   const [title, setTitle] = useState(task.title)
   const [notes, setNotes] = useState(task.notes)
   const [due, setDue] = useState(task.due !== undefined ? toDateKey(task.due) : '')
+  const [start, setStart] = useState(task.start !== undefined ? toDateKey(task.start) : '')
+  const [reminder, setReminder] = useState(task.reminder !== undefined ? `${toDateKey(task.reminder)}T${toTimeKey(task.reminder)}` : '')
+  const [rule, setRule] = useState<Recurrence | null>(task.recurrence ?? null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const account = useSettings((s) => s.accounts.find((a) => a.id === task.accountId))
@@ -210,15 +231,30 @@ export function TaskDialog({ task, onClose }: { task: ShownTask; onClose: () => 
       setBusy(false)
     }
   }
-  const save = () =>
-    run(async () => {
+  const startTs = fromDateKey(start)
+  // Only a start date: the task is due that day too. Repeating tasks need a due date to repeat from.
+  const dueTs = fromDateKey(due) ?? startTs ?? (rule ? startOfDay(Date.now()) : undefined)
+  const reminderTs = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(reminder) ? withTime(fromDateKey(reminder.slice(0, 10))!, reminder.slice(11)) : undefined
+  const save = () => {
+    if (startTs !== undefined && dueTs !== undefined && startTs > dueTs) return setError(t('tasks.startAfterDue'))
+    return run(async () => {
       const change: Parameters<typeof taskActions.update>[1] = {}
       if (title !== task.title) change.title = title
       if (notes !== task.notes) change.notes = notes
-      const newDue = fromDateKey(due) ?? null
+      const newDue = dueTs ?? null
       if (newDue !== (task.due ?? null)) change.due = newDue
+      // A start on the due date is no separate start.
+      const newStart = startTs !== undefined && startTs !== dueTs ? startTs : null
+      if (newStart !== (task.start ?? null)) change.start = newStart
+      if ((reminderTs ?? null) !== (task.reminder ?? null)) change.reminder = reminderTs ?? null
+      if (!sameRule(rule, task.recurrence, dueTs ?? Date.now())) {
+        change.recurrence = rule
+        // To Do anchors the rule at the due date, so it goes along.
+        change.due ??= newDue
+      }
       if (Object.keys(change).length) await taskActions.update(task, change)
     })
+  }
 
   return (
     <Dialog
@@ -253,11 +289,55 @@ export function TaskDialog({ task, onClose }: { task: ShownTask; onClose: () => 
           <Icon name="subject" />
           <textarea className="event-form__description event-form__grow" rows={4} placeholder={t('tasks.notes')} aria-label={t('tasks.notes')} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </label>
-        <label className="event-form__row">
+        <div className="event-form__row task-dates">
           <Icon name="event" />
-          <input type="date" className="select" value={due} onChange={(e) => setDue(e.target.value)} aria-label={t('tasks.due')} />
-          {due && <IconButton icon="close" label={t('tasks.clearDue')} onClick={() => setDue('')} />}
-        </label>
+          <label className="task-dates__field">
+            <span className="body-small muted">{t('tasks.start')}</span>
+            <input type="date" className="select" value={start} max={due || undefined} onChange={(e) => setStart(e.target.value)} aria-label={t('tasks.start')} />
+          </label>
+          <label className="task-dates__field">
+            <span className="body-small muted">{t('tasks.due')}</span>
+            <input type="date" className="select" value={due} min={start || undefined} placeholder={start} onChange={(e) => setDue(e.target.value)} aria-label={t('tasks.due')} />
+          </label>
+          {(due || start) && (
+            <IconButton
+              icon="close"
+              label={t('tasks.clearDue')}
+              onClick={() => {
+                setDue('')
+                setStart('')
+              }}
+            />
+          )}
+        </div>
+        {start && !due && <p className="body-small muted task-dates__hint">{t('tasks.dueSameAsStart')}</p>}
+        <div className="event-form__row">
+          <Icon name="notifications" />
+          {reminder ? (
+            <>
+              <input type="datetime-local" className="select" value={reminder} onChange={(e) => setReminder(e.target.value)} aria-label={t('tasks.reminder')} />
+              <IconButton icon="close" label={t('tasks.noReminder')} onClick={() => setReminder('')} />
+            </>
+          ) : (
+            <Button
+              variant="text"
+              icon="add"
+              onClick={() => {
+                // Default: 9:00 on the due date (or tomorrow, if that's past).
+                let at = withTime(dueTs ?? addDays(startOfDay(Date.now()), 1), '09:00')
+                if (at < Date.now()) at = withTime(addDays(startOfDay(Date.now()), 1), '09:00')
+                setReminder(`${toDateKey(at)}T${toTimeKey(at)}`)
+              }}
+            >
+              {t('tasks.addReminder')}
+            </Button>
+          )}
+        </div>
+        <div className="event-form__row event-form__when">
+          <Icon name="repeat" />
+          <RecurrenceField value={rule} onChange={setRule} start={dueTs ?? startOfDay(Date.now())} />
+        </div>
+        {rule && task.accountId.startsWith('google:') && <p className="body-small muted task-dates__hint">{t('tasks.repeatGoogleNote')}</p>}
         <p className="event-form__row body-medium">
           <Icon name="task_alt" />
           <span>

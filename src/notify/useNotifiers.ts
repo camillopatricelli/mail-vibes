@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useEvents } from '../calendar/data'
 import { addDays, startOfDay, toDateKey } from '../calendar/dates'
-import { timeOf } from '../calendar/format'
+import { eventWhen } from '../calendar/format'
 import { appInfo } from '../config'
 import { displayName } from '../lib/format'
 import { href } from '../lib/router'
@@ -12,6 +12,7 @@ import { fetchList, listKey, mailAccounts, PAGE_SIZE, useUnreadCounts } from '..
 import { mailHref } from '../mail/routes'
 import type { ListResult, MailSummary } from '../mail/types'
 import { useSettings, type AccountSettings } from '../settings/store'
+import { useTasks } from '../tasks/data'
 import { notify, showUnreadCount } from './notify'
 
 const INBOX = { kind: 'well', folder: 'inbox' } as const
@@ -78,35 +79,100 @@ export function useMailNotifier() {
   }, [stamp])
 }
 
-/** Event reminders, a set number of minutes before the start (timed events only). */
+// ---------- Reminders ----------
+
+const RANG_KEY = 'mail-vibes.reminders-shown'
+
+/**
+ * Reminders already shown, kept on the device (only ids and times, no content) so reloading
+ * the app doesn't show them again. Entries expire after their event or reminder has passed.
+ */
+function rang(): Record<string, number> {
+  try {
+    const all = JSON.parse(localStorage.getItem(RANG_KEY) ?? '{}') as Record<string, number>
+    const now = Date.now()
+    return Object.fromEntries(Object.entries(all).filter(([, until]) => until > now))
+  } catch {
+    return {}
+  }
+}
+function markRang(keys: string[], until: number) {
+  const all = rang()
+  for (const k of keys) all[k] = Math.max(all[k] ?? 0, until)
+  try {
+    localStorage.setItem(RANG_KEY, JSON.stringify(all))
+  } catch {
+    /* storage full or blocked: reminders may show again after a reload */
+  }
+}
+
+/** Reminders are looked for this far ahead (Google allows up to 4 weeks before an event). */
+const LOOKAHEAD_DAYS = 29
+/** A task reminder missed for longer than this (app closed) is not shown any more. */
+const TASK_GRACE_MS = 3 * 24 * 3600_000
+
+/**
+ * Event reminders at the times set on each event (or its calendar's defaults), including days
+ * before. While the app is open; one missed while closed shows when the app opens, until the event starts.
+ */
 export function useEventNotifier() {
   const { t } = useTranslation()
   const enabled = useSettings((s) => s.notifyEvents)
-  const lead = useSettings((s) => s.notifyEventMinutes) * 60_000
   const now = useNow(30_000)
   const from = startOfDay(now)
-  // Same range as the Today agenda, so the requests are shared.
-  const { events } = useEvents(from, addDays(from, 1))
-  const done = useRef(new Set<string>())
+  const { events } = useEvents(from, addDays(from, LOOKAHEAD_DAYS), { minRefreshSec: 600 })
 
   useEffect(() => {
     if (!enabled) return
+    const shown = rang()
     for (const e of events) {
-      if (e.allDay || e.cancelled || e.myResponse === 'declined') continue
-      if (now < e.start - lead || now >= e.start + 5 * 60_000) continue
-      // A meeting in two of your calendars is announced once.
-      const key = `${e.title}|${e.start}`
-      if (done.current.has(key)) continue
-      done.current.add(key)
+      if (e.cancelled || e.myResponse === 'declined' || !e.reminders.length) continue
+      const until = e.allDay ? e.end : e.start + 5 * 60_000
+      if (now >= until) continue
+      const due = e.reminders.filter((m) => e.start - m * 60_000 <= now)
+      if (!due.length) continue
+      // A meeting in two of your calendars is announced once; of several due reminders, the latest.
+      const keys = due.map((m) => `event|${e.title}|${e.start}|${m}`)
+      if (keys.some((k) => shown[k])) {
+        markRang(keys, until)
+        continue
+      }
+      markRang(keys, until)
+      keys.forEach((k) => (shown[k] = until))
       void notify(e.title || t('calendar.noTitle'), {
-        body: [`${timeOf(e.start)} – ${timeOf(e.end)}`, e.location].filter(Boolean).join(' · '),
+        body: [eventWhen(e), e.location].filter(Boolean).join(' · '),
         tag: `event|${e.accountId}|${e.id}|${e.start}`,
         hash: href('calendar', 'day', toDateKey(e.start)),
         joinUrl: e.meeting?.url,
         joinLabel: e.meeting ? t(`calendar.join.${e.meeting.provider}`) : undefined,
       })
     }
-  }, [now, events, enabled, lead, t])
+  }, [now, events, enabled, t])
+}
+
+/** Task reminders (To Do's own, or the ones Mail Vibes keeps for Google tasks), while the app is open. */
+export function useTaskNotifier() {
+  const { t } = useTranslation()
+  const enabled = useSettings((s) => s.notifyEvents)
+  const now = useNow(30_000)
+  const { tasks } = useTasks()
+
+  useEffect(() => {
+    if (!enabled) return
+    const shown = rang()
+    for (const task of tasks) {
+      if (task.completed || task.reminder === undefined || task.reminder > now || task.reminder < now - TASK_GRACE_MS) continue
+      const key = `task|${task.accountId}|${task.id}|${task.reminder}`
+      if (shown[key]) continue
+      markRang([key], task.reminder + TASK_GRACE_MS + 60_000)
+      shown[key] = 1
+      void notify(task.title || t('tasks.noTitle'), {
+        body: [task.due !== undefined ? t('tasks.dueOn', { date: new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short' }).format(task.due) }) : '', task.listName].filter(Boolean).join(' · '),
+        tag: key,
+        hash: href('tasks'),
+      })
+    }
+  }, [now, tasks, enabled, t])
 }
 
 /** Inbox unread count on the window title and the installed app's icon. */

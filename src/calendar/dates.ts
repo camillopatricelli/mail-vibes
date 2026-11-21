@@ -31,6 +31,9 @@ export function weekStartDay(locale = navigator.language): 0 | 1 {
   return region && ['US', 'CA', 'JP', 'BR', 'MX', 'IL', 'PH', 'KR', 'TW', 'AU', 'IN', 'ZA'].includes(region) ? 0 : 1
 }
 
+/** The first day of the week for a "monday" / "sunday" / "auto" (by region) preference. */
+export const weekStartOf = (pref: 'monday' | 'sunday' | 'auto'): 0 | 1 => (pref === 'auto' ? weekStartDay() : pref === 'sunday' ? 0 : 1)
+
 export function startOfWeek(t: number, weekStart: 0 | 1 = weekStartDay()) {
   const d = new Date(startOfDay(t))
   const diff = (d.getDay() - weekStart + 7) % 7

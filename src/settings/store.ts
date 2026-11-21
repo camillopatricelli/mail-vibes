@@ -13,6 +13,7 @@ export type Section = 'today' | 'mail' | 'calendar' | 'tasks'
 export type ThemePref = 'system' | 'light' | 'dark'
 /** When opened mail is marked as read: never automatically, on open, or after a few seconds */
 export type MarkReadPref = 'never' | 'open' | 'delay'
+export type WeekStartPref = 'monday' | 'sunday' | 'auto'
 
 export interface AccountSettings {
   /** Stable id: `${provider}:${providerAccountId}` */
@@ -63,10 +64,12 @@ export interface Settings {
   notifyReminderDismissedAt?: number
   /** Notify about new mail in the inbox (while the app is open) */
   notifyMail: boolean
-  /** Remind of events before they start (while the app is open) */
+  /** Show the reminders of events and tasks (while the app is open) */
   notifyEvents: boolean
-  /** How many minutes before an event the reminder appears */
-  notifyEventMinutes: number
+  /** First day of the week in the calendar */
+  weekStart: WeekStartPref
+  /** The user's own Google Maps key, for place suggestions in event locations */
+  mapsApiKey?: string
 }
 
 /** How an account is named in the app: its short name, else the holder's name, else the address. */
@@ -77,8 +80,6 @@ export function accountLongLabel(a: Pick<AccountSettings, 'label' | 'displayName
   const name = accountLabel(a)
   return name === a.email ? a.email : `${name} (${a.email})`
 }
-
-export const eventReminderOptions = [0, 5, 10, 15, 30, 60]
 
 export const SETTINGS_FORMAT = 'mail-vibes-settings'
 export const SETTINGS_VERSION = 1
@@ -114,7 +115,7 @@ export const defaultSettings: Settings = {
   hiddenTaskLists: [],
   notifyMail: true,
   notifyEvents: true,
-  notifyEventMinutes: 10,
+  weekStart: 'monday',
 }
 
 interface SettingsActions {
@@ -203,7 +204,8 @@ export function pickSettings(s: Settings): Settings {
     notifyReminderDismissedAt: s.notifyReminderDismissedAt,
     notifyMail: s.notifyMail ?? true,
     notifyEvents: s.notifyEvents ?? true,
-    notifyEventMinutes: s.notifyEventMinutes ?? 10,
+    weekStart: s.weekStart ?? 'monday',
+    mapsApiKey: s.mapsApiKey || undefined,
   }
 }
 
@@ -245,7 +247,8 @@ export function parseSettingsJson(text: string): Settings {
   if (s.markRead === 'never' || s.markRead === 'open' || s.markRead === 'delay') out.markRead = s.markRead
   if (typeof s.notifyMail === 'boolean') out.notifyMail = s.notifyMail
   if (typeof s.notifyEvents === 'boolean') out.notifyEvents = s.notifyEvents
-  if (typeof s.notifyEventMinutes === 'number' && eventReminderOptions.includes(s.notifyEventMinutes)) out.notifyEventMinutes = s.notifyEventMinutes
+  if (s.weekStart === 'monday' || s.weekStart === 'sunday' || s.weekStart === 'auto') out.weekStart = s.weekStart
+  if (isStr(s.mapsApiKey) && /^[\w-]{20,60}$/.test(s.mapsApiKey.trim())) out.mapsApiKey = s.mapsApiKey.trim()
 
   if (Array.isArray(s.accounts)) {
     out.accounts = s.accounts

@@ -1,7 +1,8 @@
 import { ONLINE_MEETING_SCOPES } from '../auth/msal'
+import { fromGraph, toGraph, type GraphRecurrence } from '../lib/recurrence'
 import { graph, type GraphPage } from '../providers/graph'
 import { addDays, localDate, startOfDay, toDateKey, toTimeKey } from './dates'
-import { findMeetingLink, type CalEvent, type CalendarInfo, type CalendarProvider, type EventDraft, type Response, type SeriesInfo } from './types'
+import { findMeetingLink, type CalEvent, type CalendarInfo, type CalendarProvider, type EventDraft, type Response } from './types'
 
 /** Outlook calendars via Microsoft Graph. */
 
@@ -29,10 +30,12 @@ interface GEvent {
   seriesMasterId?: string
   isCancelled?: boolean
   webLink?: string
+  isReminderOn?: boolean
+  reminderMinutesBeforeStart?: number
 }
 
 const FIELDS =
-  'id,subject,start,end,isAllDay,location,body,organizer,isOrganizer,attendees,responseStatus,onlineMeeting,isOnlineMeeting,seriesMasterId,isCancelled,webLink'
+  'id,subject,start,end,isAllDay,location,body,organizer,isOrganizer,attendees,responseStatus,onlineMeeting,isOnlineMeeting,seriesMasterId,isCancelled,webLink,isReminderOn,reminderMinutesBeforeStart'
 const PREFER = { Prefer: 'outlook.timezone="UTC", outlook.body-content-type="html"' }
 
 // Outlook's named calendar colours (used when a calendar has no explicit hex colour).
@@ -103,6 +106,7 @@ function toEvent(accountId: string, calendarId: string, e: GEvent): CalEvent {
     seriesId: e.seriesMasterId ?? undefined,
     cancelled: !!e.isCancelled,
     webLink: e.webLink,
+    reminders: e.isReminderOn && typeof e.reminderMinutesBeforeStart === 'number' ? [e.reminderMinutesBeforeStart] : [],
   }
 }
 
@@ -110,33 +114,14 @@ function dateTime(t: number, allDay: boolean): GDateTime {
   return { dateTime: `${toDateKey(t)}T${allDay ? '00:00' : toTimeKey(t)}:00`, timeZone: timeZone() }
 }
 
-const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-
-interface GRecurrence {
-  pattern: { type: string; interval?: number; daysOfWeek?: string[]; dayOfMonth?: number; month?: number; index?: string }
-  range: { type: string; startDate: string; endDate?: string; numberOfOccurrences?: number; recurrenceTimeZone?: string }
-}
-
-/** Recurrence for a new event, or for a series edit (where 'none' turns it into a single occurrence). */
-function recurrence(d: EventDraft, existing: boolean): GRecurrence | undefined {
-  if (d.repeat === 'custom') return undefined
-  if (d.repeat === 'none') {
+/** Recurrence for a new event, or for a series edit (where null turns it into a single occurrence). */
+function recurrence(d: Partial<EventDraft>, existing: boolean): GraphRecurrence | undefined {
+  if (d.recurrence === undefined || d.start === undefined) return undefined
+  if (d.recurrence === null) {
     if (!existing) return undefined
     return { pattern: { type: 'daily', interval: 1 }, range: { type: 'numbered', startDate: toDateKey(d.start), numberOfOccurrences: 1 } }
   }
-  const s = new Date(d.start)
-  const pattern =
-    d.repeat === 'daily'
-      ? { type: 'daily', interval: 1 }
-      : d.repeat === 'weekly'
-        ? { type: 'weekly', interval: 1, daysOfWeek: [DAYS[s.getDay()]], firstDayOfWeek: 'monday' }
-        : d.repeat === 'monthly'
-          ? { type: 'absoluteMonthly', interval: 1, dayOfMonth: s.getDate() }
-          : { type: 'absoluteYearly', interval: 1, dayOfMonth: s.getDate(), month: s.getMonth() + 1 }
-  const range = d.repeatUntil
-    ? { type: 'endDate', startDate: toDateKey(d.start), endDate: toDateKey(d.repeatUntil) }
-    : { type: 'noEnd', startDate: toDateKey(d.start) }
-  return { pattern, range }
+  return toGraph(d.recurrence, d.start, 1, timeZone())
 }
 
 function textToHtml(text: string) {
@@ -166,14 +151,19 @@ function body(d: Partial<EventDraft>, existing = false) {
     out.isOnlineMeeting = true
     out.onlineMeetingProvider = 'teamsForBusiness'
   }
-  if (d.repeat && d.start !== undefined) {
-    const r = recurrence(d as EventDraft, existing)
-    if (r) out.recurrence = r
+  const r = recurrence(d, existing)
+  if (r) out.recurrence = r
+  if (d.reminders !== undefined) {
+    out.isReminderOn = d.reminders.length > 0
+    if (d.reminders.length) out.reminderMinutesBeforeStart = d.reminders[0]
   }
   return out
 }
 
 export const outlookCalendar: CalendarProvider = {
+  maxReminders: 1,
+  maxReminderMinutes: 4 * 7 * 24 * 60,
+
   async calendars(accountId) {
     type GCal = { id: string; name: string; hexColor?: string; color?: string; canEdit?: boolean; isDefaultCalendar?: boolean }
     const page = await graph<GraphPage<GCal>>(
@@ -238,41 +228,23 @@ export const outlookCalendar: CalendarProvider = {
   },
 
   async series(accountId, _calendarId, seriesId) {
-    const e = await graph<GEvent & { recurrence?: GRecurrence }>(
+    const e = await graph<GEvent & { recurrence?: GraphRecurrence }>(
       accountId,
       `/me/events/${encodeURIComponent(seriesId)}?$select=start,end,isAllDay,recurrence`,
       { headers: PREFER },
     )
     const allDay = !!e.isAllDay
-    const p = e.recurrence?.pattern
-    const simple = (p?.interval ?? 1) === 1 && (p?.daysOfWeek?.length ?? 1) <= 1
-    const repeat: SeriesInfo['repeat'] = !p || !simple
-      ? 'custom'
-      : p.type === 'daily'
-        ? 'daily'
-        : p.type === 'weekly'
-          ? 'weekly'
-          : p.type === 'absoluteMonthly'
-            ? 'monthly'
-            : p.type === 'absoluteYearly'
-              ? 'yearly'
-              : 'custom'
-    const r = e.recurrence?.range
-    return {
-      start: parseTime(e.start, allDay),
-      end: parseTime(e.end, allDay),
-      allDay,
-      repeat: r?.type === 'numbered' && r.numberOfOccurrences === 1 ? 'none' : repeat,
-      until: r?.type === 'endDate' && r.endDate ? localDate(r.endDate) : undefined,
-    }
+    const start = parseTime(e.start, allDay)
+    const { rule, exact } = fromGraph(e.recurrence, start)
+    return { start, end: parseTime(e.end, allDay), allDay, recurrence: rule?.count === 1 ? null : rule, exact }
   },
 
   async endSeriesBefore(accountId, calendarId, seriesId, occurrenceStart) {
     const url = `/me/events/${encodeURIComponent(seriesId)}`
-    const e = await graph<{ recurrence?: GRecurrence }>(accountId, `${url}?$select=recurrence`)
+    const e = await graph<{ recurrence?: GraphRecurrence }>(accountId, `${url}?$select=recurrence`)
     const rec = e.recurrence
     const lastDay = addDays(startOfDay(occurrenceStart), -1)
-    if (!rec || localDate(rec.range.startDate) > lastDay) return outlookCalendar.remove(accountId, calendarId, seriesId)
+    if (!rec || !rec.range.startDate || localDate(rec.range.startDate) > lastDay) return outlookCalendar.remove(accountId, calendarId, seriesId)
     await graph(accountId, url, {
       method: 'PATCH',
       body: {

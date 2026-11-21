@@ -1,5 +1,6 @@
 /** Provider-neutral task model. Google Tasks and Microsoft To Do adapters map to these types. */
 
+import type { Recurrence } from '../lib/recurrence'
 import type { MailLink, MailSource } from './mailLink'
 
 export interface TaskList {
@@ -19,6 +20,12 @@ export interface Task {
   notes: string
   /** Local midnight of the due date (tasks have dates, not times) */
   due?: number
+  /** Local midnight of the start date, when it differs from the due date */
+  start?: number
+  /** When to remind (date and time) */
+  reminder?: number
+  /** Repeat rule, anchored at the due date */
+  recurrence?: Recurrence
   completed: boolean
   completedAt?: number
   /** Microsoft To Do "important" flag */
@@ -38,9 +45,17 @@ export interface TaskDraft {
   notes: string
   /** Local midnight; null clears the date */
   due: number | null
+  /** Local midnight; null = same as the due date */
+  start?: number | null
+  /** null = no reminder */
+  reminder?: number | null
+  /** null = does not repeat */
+  recurrence?: Recurrence | null
 }
 
 export interface TaskProvider {
+  /** Whether ticking a repeating task makes the provider create the next one (To Do); otherwise the app does */
+  readonly repeatsItself: boolean
   lists(accountId: string): Promise<TaskList[]>
   /** Open tasks plus recently completed ones */
   tasks(accountId: string, listId: string): Promise<Task[]>

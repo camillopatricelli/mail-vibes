@@ -381,3 +381,4 @@
 .tenant-form { display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: var(--md-sys-shape-sm); background: var(--md-sys-color-surface); }
 
 .prose { max-width: 680px; }
+.settings-key { width: 26em; max-width: 100%; font-family: ui-monospace, monospace; }

@@ -1,7 +1,8 @@
 import { google } from '../providers/google'
+import { parseRRule, toRRule } from '../lib/recurrence'
 import { addDays, localDate, startOfDay, toDateKey } from './dates'
 import { textToHtml } from './outlookCal'
-import { findMeetingLink, type CalEvent, type CalendarInfo, type CalendarProvider, type EventDraft, type Response, type SeriesInfo } from './types'
+import { findMeetingLink, type CalEvent, type CalendarInfo, type CalendarProvider, type EventDraft, type Response } from './types'
 
 /** Google Calendar via the Calendar REST API (and the Meet REST API for stand-alone Meet links). */
 
@@ -36,7 +37,14 @@ interface GEvent {
   recurringEventId?: string
   htmlLink?: string
   eventType?: string
+  reminders?: { useDefault?: boolean; overrides?: GReminder[] }
 }
+interface GReminder {
+  method?: string
+  minutes?: number
+}
+const minutesOf = (rs: GReminder[] | undefined, method: string) =>
+  (rs ?? []).filter((r) => r.method === method && typeof r.minutes === 'number').map((r) => r.minutes!).sort((a, b) => a - b)
 
 function response(r: string | undefined): Response {
   switch (r) {
@@ -83,6 +91,9 @@ function toEvent(accountId: string, calendarId: string, e: GEvent): CalEvent {
     seriesId: e.recurringEventId,
     cancelled: e.status === 'cancelled',
     webLink: e.htmlLink,
+    remindersDefault: e.reminders?.useDefault !== false,
+    reminders: e.reminders?.useDefault === false ? minutesOf(e.reminders.overrides, 'popup') : [],
+    emailReminders: e.reminders?.useDefault === false ? minutesOf(e.reminders.overrides, 'email') : [],
   }
 }
 
@@ -92,8 +103,6 @@ function gTime(t: number, allDay: boolean): GTime {
   return allDay ? { date: toDateKey(t) } : { dateTime: new Date(t).toISOString(), timeZone: timeZone() }
 }
 
-const FREQ = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' } as const
-
 /** RRULE UNTIL value: a date for all-day events, otherwise a UTC date-time. */
 function untilValue(t: number, allDay: boolean) {
   if (allDay) return toDateKey(t).replace(/-/g, '')
@@ -102,12 +111,10 @@ function untilValue(t: number, allDay: boolean) {
 
 /** The recurrence lines for a new event or a series edit (undefined = leave as is). */
 function recurrence(d: Partial<EventDraft>, existing: boolean): string[] | undefined {
-  if (!d.repeat || d.repeat === 'custom') return undefined
+  if (d.recurrence === undefined || d.start === undefined) return undefined
   // A series edited to "does not repeat" keeps only its first occurrence.
-  if (d.repeat === 'none') return existing ? ['RRULE:FREQ=DAILY;COUNT=1'] : undefined
-  // The series ends at the end of its last day (local time).
-  const until = d.repeatUntil !== undefined ? `;UNTIL=${untilValue(d.allDay ? d.repeatUntil : addDays(d.repeatUntil, 1) - 1000, !!d.allDay)}` : ''
-  return [`RRULE:FREQ=${FREQ[d.repeat]}${until}`]
+  if (d.recurrence === null) return existing ? ['RRULE:FREQ=DAILY;COUNT=1'] : undefined
+  return [toRRule(d.recurrence, d.start, !!d.allDay)]
 }
 
 function body(d: Partial<EventDraft>, existing = false) {
@@ -127,14 +134,22 @@ function body(d: Partial<EventDraft>, existing = false) {
     out.conferenceData = { createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: 'hangoutsMeet' } } }
   const rec = recurrence(d, existing)
   if (rec) out.recurrence = rec
+  if (d.reminders !== undefined)
+    out.reminders = {
+      useDefault: false,
+      overrides: [...d.reminders.map((minutes) => ({ method: 'popup', minutes })), ...(d.emailReminders ?? []).map((minutes) => ({ method: 'email', minutes }))],
+    }
   return out
 }
 
 const cal = (id: string) => `${API}/calendars/${encodeURIComponent(id)}`
 
 export const googleCalendar: CalendarProvider = {
+  maxReminders: 5,
+  maxReminderMinutes: 40320,
+
   async calendars(accountId) {
-    type GCal = { id: string; summary?: string; summaryOverride?: string; backgroundColor?: string; accessRole?: string; primary?: boolean }
+    type GCal = { id: string; summary?: string; summaryOverride?: string; backgroundColor?: string; accessRole?: string; primary?: boolean; defaultReminders?: GReminder[] }
     const r = await google<{ items?: GCal[] }>(accountId, `${API}/users/me/calendarList?maxResults=250`)
     return (r.items ?? []).map(
       (c): CalendarInfo => ({
@@ -144,6 +159,7 @@ export const googleCalendar: CalendarProvider = {
         color: c.backgroundColor,
         canEdit: c.accessRole === 'owner' || c.accessRole === 'writer',
         isDefault: !!c.primary,
+        defaultReminders: minutesOf(c.defaultReminders, 'popup'),
       }),
     )
   },
@@ -189,10 +205,14 @@ export const googleCalendar: CalendarProvider = {
   },
 
   async update(accountId, calendarId, eventId, draft) {
-    await google(accountId, `${cal(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=all&conferenceDataVersion=1`, {
-      method: 'PATCH',
-      body: body(draft, true),
-    })
+    const url = `${cal(calendarId)}/events/${encodeURIComponent(eventId)}`
+    const out = body(draft, true)
+    if (Array.isArray(out.recurrence) && draft.recurrence) {
+      // Keep the skipped dates (EXDATE) and extra ones of the series.
+      const cur = await google<{ recurrence?: string[] }>(accountId, `${url}?fields=recurrence`)
+      out.recurrence = [...(out.recurrence as string[]), ...(cur.recurrence ?? []).filter((r) => !/^RRULE:/i.test(r))]
+    }
+    await google(accountId, `${url}?sendUpdates=all&conferenceDataVersion=1`, { method: 'PATCH', body: out })
   },
 
   async remove(accountId, calendarId, eventId) {
@@ -204,20 +224,9 @@ export const googleCalendar: CalendarProvider = {
       accountId,
       `${cal(calendarId)}/events/${encodeURIComponent(seriesId)}?fields=start,end,recurrence`,
     )
-    const rule = (e.recurrence ?? []).find((r) => r.startsWith('RRULE:')) ?? ''
-    const parts = Object.fromEntries(rule.slice(6).split(';').map((p) => p.split('=') as [string, string]))
-    const simple = (!parts.INTERVAL || parts.INTERVAL === '1') && !parts.BYSETPOS && (!parts.BYDAY || !parts.BYDAY.includes(',')) && (e.recurrence ?? []).length === 1
-    const byFreq: Record<string, SeriesInfo['repeat']> = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' }
-    let repeat: SeriesInfo['repeat'] = simple ? (byFreq[parts.FREQ] ?? 'custom') : 'custom'
-    if (parts.COUNT === '1') repeat = 'none'
-    // A plain monthly rule on a weekday ("every 2nd Tuesday") is not the "same date" rule the editor offers.
-    if (repeat === 'monthly' && parts.BYDAY) repeat = 'custom'
-    let until: number | undefined
-    if (parts.UNTIL) {
-      const m = /^(\d{4})(\d{2})(\d{2})(T(\d{2})(\d{2})(\d{2})Z?)?$/.exec(parts.UNTIL)
-      if (m) until = startOfDay(m[4] ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[5], +m[6], +m[7]) : new Date(+m[1], +m[2] - 1, +m[3]).getTime())
-    }
-    return { start: parseTime(e.start), end: parseTime(e.end), allDay: !!e.start?.date, repeat, until }
+    const start = parseTime(e.start)
+    const { rule, exact } = parseRRule(e.recurrence, start)
+    return { start, end: parseTime(e.end), allDay: !!e.start?.date, recurrence: rule?.count === 1 ? null : rule, exact }
   },
 
   async endSeriesBefore(accountId, calendarId, seriesId, occurrenceStart) {

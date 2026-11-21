@@ -1,4 +1,4 @@
-import { accountLabel } from '../settings/store'
+import { accountLabel, useSettings } from '../settings/store'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNow } from '../lib/time'
@@ -20,7 +20,7 @@ import {
   toDateKey,
   viewRange,
   views,
-  weekStartDay,
+  weekStartOf,
   type View,
 } from './dates'
 import { EventDetails, EventEditor, type EditorTarget } from './EventDialogs'
@@ -304,7 +304,7 @@ export function CalendarPage() {
   const { params } = useLocation()
   const view: View = views.includes(params[0] as View) ? (params[0] as View) : isPhone() ? 'agenda' : 'week'
   const date = fromDateKey(params[1]) ?? startOfDay(Date.now())
-  const weekStart = weekStartDay()
+  const weekStart = weekStartOf(useSettings((s) => s.weekStart))
   const [from, to] = viewRange(view, date, weekStart)
   const { events, errors, isLoading, isFetching, refetch, accounts } = useEvents(from, to)
   const [open, setOpen] = useState<ShownEvent | null>(null)

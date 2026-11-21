@@ -356,6 +356,51 @@ function ContactsStatus() {
   )
 }
 
+/** The user's own Google Maps key (place suggestions in event locations). */
+function MapsKeyField() {
+  const { t } = useTranslation()
+  const key = useSettings((s) => s.mapsApiKey)
+  const update = useSettings((s) => s.update)
+  const [text, setText] = useState(key ?? '')
+  const valid = !text.trim() || /^[\w-]{20,60}$/.test(text.trim())
+  return (
+    <>
+      <Field label={t('settings.mapsKey')}>
+        <span className="row-wrap">
+          <input
+            className="text-field text-field--outlined settings-key"
+            value={text}
+            placeholder={t('settings.mapsKeyPlaceholder')}
+            spellCheck={false}
+            autoComplete="off"
+            aria-invalid={!valid}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={() => valid && update({ mapsApiKey: text.trim() || undefined })}
+          />
+          {key && (
+            <Button
+              variant="text"
+              onClick={() => {
+                setText('')
+                update({ mapsApiKey: undefined })
+              }}
+            >
+              {t('settings.mapsKeyRemove')}
+            </Button>
+          )}
+        </span>
+      </Field>
+      {!valid && <p className="body-small field-error">{t('settings.mapsKeyInvalid')}</p>}
+      <p className="body-small muted">
+        {t('settings.mapsKeyHint')}{' '}
+        <a href={`${appInfo.repoUrl}/blob/main/docs/google-maps-key.md`} target="_blank" rel="noopener noreferrer">
+          {t('settings.mapsKeyHowTo')}
+        </a>
+      </p>
+    </>
+  )
+}
+
 export function SettingsPage() {
   const { t } = useTranslation()
   const s = useSettings()
@@ -417,6 +462,17 @@ export function SettingsPage() {
         <DefaultSelect label={t('settings.defaultContacts')} field="contactsAccountId" />
         <ContactsStatus />
         <DefaultSelect label={t('settings.defaultNotes')} field="notesAccountId" provider="google" />
+      </Section>
+
+      <Section title={t('settings.calendar')}>
+        <Field label={t('settings.weekStart')}>
+          <select className="select" value={s.weekStart} onChange={(e) => s.update({ weekStart: e.target.value as typeof s.weekStart })}>
+            <option value="monday">{t('settings.weekStartMonday')}</option>
+            <option value="sunday">{t('settings.weekStartSunday')}</option>
+            <option value="auto">{t('settings.weekStartAuto')}</option>
+          </select>
+        </Field>
+        <MapsKeyField />
       </Section>
 
       <Section title={t('notify.section')}>

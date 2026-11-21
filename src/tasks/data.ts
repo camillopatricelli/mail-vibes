@@ -1,6 +1,8 @@
 import { keepPreviousData, useQueries } from '@tanstack/react-query'
 import { useMemo } from 'react'
+import { addDays, DAY, startOfDay } from '../calendar/dates'
 import i18n from '../i18n'
+import { continued, nextOccurrence } from '../lib/recurrence'
 import { queryClient } from '../lib/queryClient'
 import { useSettings, type AccountSettings } from '../settings/store'
 import { useStatus } from '../status/store'
@@ -104,12 +106,21 @@ export const taskActions = {
   async setCompleted(t: Task, completed: boolean, undoable = true) {
     patch(t, { completed, completedAt: completed ? Date.now() : undefined })
     try {
-      await tasksFor(t.accountId).setCompleted(t.accountId, t.listId, t.id, completed)
+      const provider = tasksFor(t.accountId)
+      await provider.setCompleted(t.accountId, t.listId, t.id, completed)
+      // Google Tasks doesn't repeat tasks for apps: the app adds the next one.
+      const next = completed && t.recurrence && !provider.repeatsItself ? await repeatNext(t) : undefined
       if (completed && undoable)
         toast({
           tone: 'success',
-          message: i18n.t('tasks.completedToast'),
-          action: { label: i18n.t('tasks.undo'), run: () => void taskActions.setCompleted(t, false, false) },
+          message: next?.due !== undefined ? i18n.t('tasks.completedNext', { date: new Intl.DateTimeFormat(i18n.language, { weekday: 'short', day: 'numeric', month: 'short' }).format(next.due) }) : i18n.t('tasks.completedToast'),
+          action: {
+            label: i18n.t('tasks.undo'),
+            run: () => {
+              void taskActions.setCompleted(t, false, false)
+              if (next) void taskActions.remove(next, true)
+            },
+          },
         })
     } catch (e) {
       patch(t, { completed: !completed })
@@ -129,17 +140,46 @@ export const taskActions = {
 
   async update(t: Task, draft: Partial<TaskDraft>) {
     await tasksFor(t.accountId).update(t.accountId, t.listId, t.id, draft)
-    patch(t, { ...(draft.title !== undefined && { title: draft.title }), ...(draft.notes !== undefined && { notes: draft.notes }), ...(draft.due !== undefined && { due: draft.due ?? undefined }) })
+    const change: Partial<Task> = {}
+    if (draft.title !== undefined) change.title = draft.title
+    if (draft.notes !== undefined) change.notes = draft.notes
+    if (draft.due !== undefined) change.due = draft.due ?? undefined
+    if (draft.start !== undefined) change.start = draft.start ?? undefined
+    if (draft.reminder !== undefined) change.reminder = draft.reminder ?? undefined
+    if (draft.recurrence !== undefined) change.recurrence = draft.recurrence ?? undefined
+    patch(t, change)
     toast({ tone: 'success', message: i18n.t('tasks.saved') })
     void refresh(t)
   },
 
-  async remove(t: Task) {
+  async remove(t: Task, quiet = false) {
     await tasksFor(t.accountId).remove(t.accountId, t.listId, t.id)
     patch(t, (list) => list.filter((x) => x.id !== t.id && x.parentId !== t.id))
-    toast({ tone: 'success', message: i18n.t('tasks.deleted') })
+    if (!quiet) toast({ tone: 'success', message: i18n.t('tasks.deleted') })
     void refresh(t)
   },
+}
+
+/** Adds the next task of a repeating one (dates moved to the next occurrence). */
+async function repeatNext(t: Task): Promise<Task | undefined> {
+  if (!t.recurrence) return undefined
+  const anchor = t.due ?? startOfDay(Date.now())
+  const due = nextOccurrence(t.recurrence, anchor)
+  if (due === undefined) return undefined
+  const shift = Math.round((due - anchor) / DAY)
+  try {
+    return await taskActions.create(t.accountId, t.listId, {
+      title: t.title,
+      notes: t.notes,
+      due,
+      start: t.start !== undefined ? addDays(t.start, shift) : null,
+      reminder: t.reminder !== undefined ? addDays(t.reminder, shift) : null,
+      recurrence: continued(t.recurrence),
+    })
+  } catch (e) {
+    toast({ tone: 'error', message: i18n.t('tasks.repeatFailed', { reason: (e as Error).message }) })
+    return undefined
+  }
 }
 
 export function toggleTaskList(accountId: string, listId: string) {

@@ -10,12 +10,15 @@ import { isValidEmail } from '../mail/addressBook'
 import { accountLabel, accountLongLabel, useSettings } from '../settings/store'
 import { AccountBadge, Button, Icon, type IconName } from '../ui/components'
 import { Dialog, Spinner } from '../ui/overlay'
+import { describe, sameRule, type Recurrence } from '../lib/recurrence'
 import { calendarFor, calendarKey } from './api'
 import { calendarActions, useCalendars, type ShownEvent } from './data'
 import { addDays, fromDateKey, startOfDay, toDateKey, toTimeKey, withTime } from './dates'
-import { eventWhen } from './format'
+import { dateLocale, eventWhen } from './format'
+import { leadText, LocationField, RecurrenceField, RemindersField } from './FormFields'
+import { mapsUrl } from './places'
 import type { Address } from '../mail/types'
-import type { CalEvent, EventDraft, MeetingChoice, Repeat, Response, SeriesInfo } from './types'
+import type { CalEvent, EventDraft, MeetingChoice, Response, SeriesInfo } from './types'
 
 
 function sanitizeDescription(html: string) {
@@ -90,6 +93,13 @@ export function EventDetails({ event, onClose, onEdit }: { event: ShownEvent; on
     )
 
   const locationIsUrl = /^https?:\/\/\S+$/.test(event.location.trim())
+  const series = useQuery({
+    queryKey: ['cal', 'series', event.accountId, event.seriesId],
+    enabled: !!event.seriesId,
+    staleTime: 5 * 60_000,
+    queryFn: () => calendarFor(event.accountId).series(event.accountId, event.calendarId, event.seriesId!),
+  })
+  const rule = series.data?.recurrence
 
   return (
     <Dialog
@@ -125,7 +135,7 @@ export function EventDetails({ event, onClose, onEdit }: { event: ShownEvent; on
             {eventWhen(event)}
             {event.seriesId && (
               <span className="body-small muted event-details__note">
-                <Icon name="repeat" size={16} /> {t('calendar.recurring')}
+                <Icon name="repeat" size={16} /> {rule ? describe(rule, series.data!.start, t, dateLocale()) : t('calendar.recurring')}
               </span>
             )}
           </span>
@@ -158,8 +168,16 @@ export function EventDetails({ event, onClose, onEdit }: { event: ShownEvent; on
                 {event.location}
               </a>
             ) : (
-              <span className="event-details__wrap">{event.location}</span>
+              <a href={mapsUrl(event.location)} target="_blank" rel="noopener noreferrer" className="event-details__wrap" title={t('calendar.openMap')}>
+                {event.location}
+              </a>
             )}
+          </p>
+        )}
+        {event.reminders.length > 0 && (
+          <p className="event-details__row">
+            <Icon name="notifications" />
+            <span className="body-medium">{[...event.reminders].sort((a, b) => a - b).map((m) => leadText(m, t)).join(', ')}</span>
           </p>
         )}
         {(event.attendees.length > 0 || event.organizer) && (
@@ -325,8 +343,7 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
   // All-day ends are exclusive in the providers but shown inclusive here.
   const [endDate, setEndDate] = useState(toDateKey(existing?.allDay || (target.mode === 'create' && target.allDay) ? addDays(endTs, -1) : endTs))
   const [endTime, setEndTime] = useState(toTimeKey(endTs))
-  const [repeat, setRepeat] = useState<Repeat | 'custom'>('none')
-  const [until, setUntil] = useState('')
+  const [rule, setRule] = useState<Recurrence | null>(null)
 
   // Recurring events: edit this occurrence or the whole series.
   const [scope, setScope] = useState<'one' | 'all'>('one')
@@ -338,17 +355,23 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
   })
   const seriesInfo: SeriesInfo | undefined = seriesMode ? series.data : undefined
   useEffect(() => {
-    if (!seriesInfo) return
-    setRepeat(seriesInfo.repeat)
-    setUntil(seriesInfo.until !== undefined ? toDateKey(seriesInfo.until) : '')
+    if (seriesInfo) setRule(seriesInfo.recurrence)
   }, [seriesInfo])
-  const showRepeat = !existing || seriesMode
+  // A single event can become a series; an occurrence edit leaves the rule alone.
+  const showRepeat = !existing || seriesMode || !existing.seriesId
+  const initialRule = seriesInfo ? seriesInfo.recurrence : null
   const [location, setLocation] = useState(existing?.location ?? '')
   const [attendees, setAttendees] = useState<Address[]>(existing?.attendees.map((a) => ({ name: a.name, email: a.email })) ?? [])
   const initialDescription = useMemo(() => (existing ? htmlToPlain(existing.descriptionHtml) : ''), [existing])
   const [description, setDescription] = useState(initialDescription)
 
   const calAccountId = calKey.split('|')[0]
+  const calendar = calendars.find((c) => calendarKey(c.accountId, c.id) === calKey)
+  const provider = calAccountId ? calendarFor(calAccountId) : undefined
+  // New events start with the calendar's own default reminders (Outlook: 15 minutes).
+  const defaultReminders = (calendar?.defaultReminders ?? (calAccountId.startsWith('microsoft:') ? [15] : [])).slice(0, provider?.maxReminders ?? 5)
+  const [reminders, setReminders] = useState<number[] | null>(existing ? existing.reminders : null)
+  const shownReminders = reminders ?? defaultReminders
   const defaultMeeting = (): MeetingChoice => {
     const a = accounts.find((x) => x.id === defaults.meetingAccountId)
     if (!a) return { kind: 'none' }
@@ -405,14 +428,16 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
     if (!(end > start) && !(allDay && end >= start)) return setError(t('calendar.endBeforeStart'))
     const bad = attendees.find((a) => !isValidEmail(a.email))
     if (bad) return setError(t('calendar.invalidGuest', { address: bad.email }))
-    const untilTs = repeat !== 'none' && repeat !== 'custom' && until ? fromDateKey(until) : undefined
     if (seriesMode && !seriesInfo) return setError(t('calendar.seriesLoading'))
     const firstDay = seriesInfo ? startOfDay(seriesInfo.start) : startOfDay(start)
-    if (untilTs !== undefined && untilTs < firstDay) return setError(t('calendar.untilBeforeStart'))
+    if (rule?.until !== undefined && rule.until < firstDay) return setError(t('calendar.untilBeforeStart'))
+    if (provider && shownReminders.some((m) => m > provider.maxReminderMinutes))
+      return setError(t('reminders.tooEarly', { lead: leadText(provider.maxReminderMinutes, t) }))
     setSaving(true)
     try {
       const [accountId, calendarId] = [calKey.slice(0, calKey.indexOf('|')), calKey.slice(calKey.indexOf('|') + 1)]
-      const draft: EventDraft = { title, start, end, allDay, location, attendees, repeat, repeatUntil: untilTs }
+      const draft: EventDraft = { title, start, end, allDay, location, attendees, recurrence: rule }
+      if (reminders !== null) draft.reminders = reminders
       if (description !== initialDescription || !existing) draft.description = description
       if (canAddMeeting && meeting.kind !== 'none') {
         if (!external) draft.nativeMeeting = true
@@ -429,8 +454,15 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
           // The series keeps its first date; times, length and repeat change for every occurrence.
           const masterStart = allDay ? startOfDay(seriesInfo.start) : withTime(startOfDay(seriesInfo.start), startTime)
           Object.assign(changes, { start: masterStart, end: masterStart + (end - start), allDay })
-          if (repeat !== seriesInfo.repeat || untilTs !== seriesInfo.until) Object.assign(changes, { repeat, repeatUntil: untilTs })
-        } else if (start !== existing.start || end !== existing.end || allDay !== existing.allDay) Object.assign(changes, { start, end, allDay })
+          if (!sameRule(rule, initialRule, masterStart)) changes.recurrence = rule
+        } else {
+          if (start !== existing.start || end !== existing.end || allDay !== existing.allDay || rule) Object.assign(changes, { start, end, allDay })
+          if (rule) changes.recurrence = rule
+        }
+        if (reminders !== null && [...reminders].sort().join() !== [...existing.reminders].sort().join()) {
+          changes.reminders = reminders
+          changes.emailReminders = existing.emailReminders
+        }
         if (location !== existing.location || draft.externalMeeting) changes.location = location
         const before = existing.attendees.map((a) => a.email.toLowerCase()).sort().join(',')
         if (attendees.map((a) => a.email.toLowerCase()).sort().join(',') !== before) changes.attendees = attendees
@@ -542,31 +574,31 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
             <label className="checkbox">
               <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} /> {t('calendar.allDay')}
             </label>
-            {showRepeat && (
-              <span className="event-form__pair">
-                <select
-                  className="select"
-                  value={repeat}
-                  disabled={seriesMode && !seriesInfo}
-                  onChange={(e) => setRepeat(e.target.value as Repeat | 'custom')}
-                  aria-label={t('calendar.repeat')}
-                >
-                  {(['none', 'daily', 'weekly', 'monthly', 'yearly'] as Repeat[]).map((r) => (
-                    <option key={r} value={r}>
-                      {t(`calendar.repeats.${r}`)}
-                    </option>
-                  ))}
-                  {seriesInfo?.repeat === 'custom' && <option value="custom">{t('calendar.repeats.custom')}</option>}
-                </select>
-                {repeat !== 'none' && repeat !== 'custom' && (
-                  <label className="checkbox">
-                    {t('calendar.until')}
-                    <input type="date" className="select" value={until} min={startDate} onChange={(e) => setUntil(e.target.value)} aria-label={t('calendar.until')} />
-                  </label>
-                )}
-              </span>
-            )}
           </div>
+        </div>
+
+        {showRepeat && (
+          <div className="event-form__row event-form__when">
+            <Icon name="repeat" />
+            <RecurrenceField
+              value={rule}
+              onChange={setRule}
+              start={seriesInfo ? seriesInfo.start : start}
+              exact={!seriesInfo || seriesInfo.exact || !sameRule(rule, initialRule, seriesInfo.start) ? true : false}
+              disabled={seriesMode && !seriesInfo}
+            />
+          </div>
+        )}
+
+        <div className="event-form__row event-form__when">
+          <Icon name="notifications" />
+          <RemindersField
+            value={shownReminders}
+            onChange={setReminders}
+            start={start}
+            max={provider?.maxReminders ?? 1}
+            maxMinutes={provider?.maxReminderMinutes ?? 40320}
+          />
         </div>
 
         <label className="event-form__row">
@@ -593,15 +625,15 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
           </div>
         )}
 
-        <label className="event-form__row">
+        <div className="event-form__row">
           <Icon name="location_on" />
-          <input className="text-field text-field--outlined event-form__grow" placeholder={t('calendar.location')} aria-label={t('calendar.location')} value={location} onChange={(e) => setLocation(e.target.value)} />
-        </label>
+          <LocationField value={location} onChange={setLocation} />
+        </div>
 
         <div className="event-form__row">
           <Icon name="group" />
           <div className="event-form__grow">
-            <RecipientField label={t('calendar.guests')} value={attendees} onChange={setAttendees} />
+            <RecipientField label={t('calendar.guests')} placeholder={t('calendar.addGuests')} boxed value={attendees} onChange={setAttendees} />
           </div>
         </div>
 

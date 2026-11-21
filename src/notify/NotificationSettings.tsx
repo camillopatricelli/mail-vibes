@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isIos, isStandalone } from '../shell/reminders'
-import { eventReminderOptions, useSettings } from '../settings/store'
+import { useSettings } from '../settings/store'
 import { Button } from '../ui/components'
 import { install, useCanInstall } from './install'
 import { notify, permission, requestPermission } from './notify'
@@ -34,22 +34,7 @@ export function NotificationSettings({ Field }: { Field: (p: { label: string; ch
         <input type="checkbox" checked={s.notifyMail} onChange={(e) => s.update({ notifyMail: e.target.checked })} aria-label={t('notify.mail')} />
       </Field>
       <Field label={t('notify.events')}>
-        <span className="notify-events">
-          <input type="checkbox" checked={s.notifyEvents} onChange={(e) => s.update({ notifyEvents: e.target.checked })} aria-label={t('notify.events')} />
-          <select
-            className="select"
-            value={s.notifyEventMinutes}
-            disabled={!s.notifyEvents}
-            onChange={(e) => s.update({ notifyEventMinutes: Number(e.target.value) })}
-            aria-label={t('notify.eventMinutes')}
-          >
-            {eventReminderOptions.map((m) => (
-              <option key={m} value={m}>
-                {m === 0 ? t('notify.atStart') : t('notify.minutesBefore', { count: m })}
-              </option>
-            ))}
-          </select>
-        </span>
+        <input type="checkbox" checked={s.notifyEvents} onChange={(e) => s.update({ notifyEvents: e.target.checked })} aria-label={t('notify.events')} />
       </Field>
       {perm === 'granted' && (
         <Field label={t('notify.test')}>
