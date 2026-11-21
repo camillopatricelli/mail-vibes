@@ -1,3 +1,4 @@
+import { useSnoozeWaker } from '../mail/useSnoozeWaker'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { appInfo } from '../config'
@@ -182,6 +183,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   useContactsSync()
   useMailNotifier()
   useEventNotifier()
+  useSnoozeWaker()
   useUnreadBadge()
   const showFilters = route !== 'settings' && route !== 'privacy' && route !== 'setup'
   return (

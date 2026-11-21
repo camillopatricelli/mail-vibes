@@ -25,6 +25,11 @@ export function fullDate(ts: number) {
   })
 }
 
+/** A near date and time, e.g. "Tue 24 Nov, 09:00". */
+export function shortDateTime(ts: number) {
+  return new Date(ts).toLocaleString(locale(), { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
 /** The name to show for an address: from the user's contacts, else from the message, else the address. */
 export function displayName(a: Address) {
   return contactName(a.email) || a.name || a.email.split('@')[0] || a.email

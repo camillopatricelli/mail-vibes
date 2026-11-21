@@ -5,6 +5,7 @@ import { useSettings } from '../settings/store'
 import { sanitizeForEditor, escapeHtml } from './html'
 import { buildMime, decodeBase64Url, decodeText, parseAddressHeader, type MimeAttachment } from './mime'
 import type { Address, Attachment, DraftContent, FolderKind, ListTarget, MailFolder, MailMessage, MailProvider, MailSummary, MailTag } from './types'
+import { isSnoozeLabel, snoozeLabelName, snoozeLabelTime } from './snooze'
 
 /**
  * Gmail via the Gmail REST API. Gmail has labels instead of folders: well-known folders map to
@@ -72,7 +73,48 @@ async function labelsFor(accountId: string, msgs: { labelIds?: string[] }[]) {
   return unknown ? labelInfo(accountId, true) : info
 }
 
-const tagsOf = (m: GMsg, labels?: LabelInfo) => (m.labelIds ?? []).flatMap((id) => labels?.byId.get(id)?.name ?? [])
+const labelNamesOf = (m: GMsg, labels?: LabelInfo) => (m.labelIds ?? []).flatMap((id) => labels?.byId.get(id)?.name ?? [])
+const tagsOf = (m: GMsg, labels?: LabelInfo) => labelNamesOf(m, labels).filter((n) => !isSnoozeLabel(n))
+function snoozedUntilOf(m: GMsg, labels?: LabelInfo) {
+  const times = labelNamesOf(m, labels).flatMap((n) => snoozeLabelTime(n) ?? [])
+  return times.length ? Math.min(...times) : undefined
+}
+
+/** The account's "Snoozed/<time>" labels. */
+const snoozeLabels = (info: LabelInfo) => [...info.byId.values()].filter((l) => snoozeLabelTime(l.name) !== undefined)
+
+/** A user label by name, created (with its parent, for nesting in Gmail) if missing. */
+async function ensureLabel(accountId: string, name: string): Promise<GLabel> {
+  let info = await labelInfo(accountId)
+  const parts = name.split('/')
+  let label: GLabel | undefined
+  for (let i = 1; i <= parts.length; i++) {
+    const n = parts.slice(0, i).join('/')
+    label = info.byName.get(n.toLowerCase())
+    if (!label) {
+      label = await google<GLabel>(accountId, `${API}/labels`, {
+        method: 'POST',
+        body: { name: n, labelListVisibility: 'labelShow', messageListVisibility: 'show' },
+      })
+      info = await labelInfo(accountId, true)
+    }
+  }
+  return label!
+}
+
+/** Deletes "Snoozed/<time>" labels no message carries any more. */
+async function dropEmptySnoozeLabels(accountId: string) {
+  const labels = snoozeLabels(await labelInfo(accountId, true))
+  let dropped = false
+  for (const l of labels) {
+    const c = await google<{ messagesTotal?: number }>(accountId, `${API}/labels/${l.id}?fields=messagesTotal`).catch(() => undefined)
+    if (c && !c.messagesTotal) {
+      await google(accountId, `${API}/labels/${l.id}`, { method: 'DELETE' }).catch(() => undefined)
+      dropped = true
+    }
+  }
+  if (dropped) await labelInfo(accountId, true)
+}
 
 const header = (p: GPart | undefined, name: string) =>
   p?.headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value
@@ -152,6 +194,7 @@ function toSummary(accountId: string, m: GMsg, info?: LabelInfo): MailSummary {
     hasAttachments: m.payload?.mimeType === 'multipart/mixed' || attachmentsOf(m.payload).some((a) => !a.isInline),
     isDraft: labels.includes('DRAFT'),
     tags: tagsOf(m, info),
+    snoozedUntil: snoozedUntilOf(m, info),
   }
 }
 
@@ -174,6 +217,7 @@ function toMessage(accountId: string, m: GMsg, labels?: LabelInfo): MailMessage 
 const listQuery: Record<FolderKind, { labelIds?: string; q?: string; spamTrash?: boolean }> = {
   inbox: { labelIds: 'INBOX' },
   starred: { labelIds: 'STARRED' },
+  snoozed: {}, // listed per "Snoozed/<time>" label, see list()
   sent: { labelIds: 'SENT' },
   drafts: { labelIds: 'DRAFT' },
   // Gmail has no Archive label: "archived" is everything that is not in another well-known place.
@@ -438,6 +482,19 @@ async function draftState(accountId: string, id: string): Promise<DraftState> {
 
 export const gmail: MailProvider = {
   async list(accountId, target: ListTarget, count) {
+    if (target === 'snoozed') {
+      const labels = snoozeLabels(await labelInfo(accountId, true))
+      const pages = await Promise.all(
+        labels.map((l) =>
+          google<{ messages?: { id: string }[] }>(accountId, `${API}/messages?${new URLSearchParams({ labelIds: l.id, maxResults: String(Math.min(count, 500)) })}`),
+        ),
+      )
+      const ids = [...new Set(pages.flatMap((p) => (p.messages ?? []).map((m) => m.id)))]
+      const cache = await summaries(accountId, ids)
+      const found = ids.flatMap((id) => cache.get(id) ?? [])
+      const info = await labelsFor(accountId, found)
+      return { messages: found.map((m) => toSummary(accountId, m, info)), hasMore: false }
+    }
     const params = new URLSearchParams({ maxResults: String(Math.min(count, 500)) })
     if (typeof target === 'string') {
       const q = listQuery[target]
@@ -478,7 +535,7 @@ export const gmail: MailProvider = {
 
   async tags(accountId) {
     const info = await labelInfo(accountId, true)
-    return [...info.byId.values()].map((l): MailTag => ({ name: l.name, color: l.color?.backgroundColor }))
+    return [...info.byId.values()].filter((l) => !isSnoozeLabel(l.name)).map((l): MailTag => ({ name: l.name, color: l.color?.backgroundColor }))
   },
 
   async setTags(accountId, messages, add, remove) {
@@ -527,9 +584,22 @@ export const gmail: MailProvider = {
     throw new ApiError(i18n.t('mail.gmailNoDeleteForever'), 403)
   },
 
+  async snooze(accountId, ids, until) {
+    const label = await ensureLabel(accountId, snoozeLabelName(until))
+    const others = snoozeLabels(await labelInfo(accountId)).map((l) => l.id).filter((id) => id !== label.id)
+    await modify(accountId, ids, [label.id], ['INBOX', ...others])
+    await dropEmptySnoozeLabels(accountId)
+  },
+
+  async unsnooze(accountId, ids) {
+    const all = snoozeLabels(await labelInfo(accountId)).map((l) => l.id)
+    await modify(accountId, ids, ['INBOX', 'UNREAD'], all)
+    await dropEmptySnoozeLabels(accountId)
+  },
+
   async folders(accountId) {
     const r = await google<{ labels?: GLabel[] }>(accountId, `${API}/labels`)
-    const user = (r.labels ?? []).filter((l) => l.type === 'user').sort((a, b) => a.name.localeCompare(b.name))
+    const user = (r.labels ?? []).filter((l) => l.type === 'user' && !isSnoozeLabel(l.name)).sort((a, b) => a.name.localeCompare(b.name))
     const parts = await googleBatch<GLabel>(
       accountId,
       BATCH,

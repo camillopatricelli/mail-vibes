@@ -311,3 +311,13 @@
 .tag-dialog__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tag-dialog__empty { padding: 8px 4px; }
 .tag-dialog__consent { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin: 0; }
+
+/* Snooze */
+.snooze-list__time { margin-left: auto; }
+.snooze-custom { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.snooze-custom__row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.snooze-custom__row .select { flex: 1 1 14em; }
+.snooze-note { margin: 16px 0 0; }
+.snooze-until { display: inline-flex; align-items: center; gap: 4px; color: var(--md-sys-color-primary); }
+.thread__snoozed { display: flex; align-items: center; gap: 6px; margin: -8px 16px 16px 56px; color: var(--md-sys-color-primary); }
+@media (max-width: 839px) { .thread__snoozed { margin: -4px 16px 12px; } }

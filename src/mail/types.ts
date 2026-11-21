@@ -1,7 +1,7 @@
 /** Provider-neutral mail model. Outlook (Graph) and Gmail adapters both map to these types. */
 
-export type FolderKind = 'inbox' | 'starred' | 'sent' | 'drafts' | 'archive' | 'trash' | 'spam'
-export const folderKinds: FolderKind[] = ['inbox', 'starred', 'sent', 'drafts', 'archive', 'trash', 'spam']
+export type FolderKind = 'inbox' | 'starred' | 'snoozed' | 'sent' | 'drafts' | 'archive' | 'trash' | 'spam'
+export const folderKinds: FolderKind[] = ['inbox', 'starred', 'snoozed', 'sent', 'drafts', 'archive', 'trash', 'spam']
 
 export interface Address {
   name: string
@@ -24,6 +24,8 @@ export interface MailSummary {
   isDraft: boolean
   /** Tag names: Gmail user labels (full path) or Outlook categories */
   tags: string[]
+  /** When a snoozed message comes back to the Inbox (see snooze.ts) */
+  snoozedUntil?: number
 }
 
 export interface Attachment {
@@ -94,6 +96,10 @@ export interface MailProvider {
   /** Moves messages to a well-known folder or a folder id */
   move(accountId: string, ids: string[], dest: ListTarget): Promise<void>
   deleteForever(accountId: string, ids: string[]): Promise<void>
+  /** Takes messages out of the Inbox until `until` (see snooze.ts); snoozing again replaces the time */
+  snooze(accountId: string, ids: string[], until: number): Promise<void>
+  /** Brings snoozed messages back to the Inbox, unread */
+  unsnooze(accountId: string, ids: string[]): Promise<void>
   /** The user's own folders (well-known/system folders excluded), with unread counts */
   folders(accountId: string): Promise<MailFolder[]>
   /** The account's tags (Gmail user labels, Outlook categories) */

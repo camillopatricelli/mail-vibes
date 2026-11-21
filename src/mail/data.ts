@@ -1,6 +1,7 @@
 import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import i18n from '../i18n'
+import { shortDateTime } from '../lib/format'
 import { queryClient } from '../lib/queryClient'
 import { useSettings, type AccountSettings } from '../settings/store'
 import { useStatus } from '../status/store'
@@ -25,6 +26,8 @@ export interface ThreadSummary {
   hasDraft: boolean
   /** Tags of any message in the thread */
   tags: string[]
+  /** Earliest wake-up time of its snoozed messages */
+  snoozedUntil?: number
   /** Messages of this thread in the current list (actions apply to these) */
   messages: MailSummary[]
 }
@@ -65,6 +68,7 @@ export function groupThreads(messages: MailSummary[]): ThreadSummary[] {
       hasAttachments: ms.some((m) => m.hasAttachments),
       hasDraft: ms.some((m) => m.isDraft),
       tags: uniqueTags(ms.flatMap((m) => m.tags)),
+      snoozedUntil: ms.some((m) => m.snoozedUntil) ? Math.min(...ms.flatMap((m) => m.snoozedUntil ?? [])) : undefined,
       messages: ms,
     })
   }
@@ -311,6 +315,7 @@ async function run(
   patch: Patch | 'remove',
   call: (accountId: string, ids: string[]) => Promise<void>,
   successMessage?: string,
+  quiet = false,
 ) {
   const t = i18n.t.bind(i18n)
   const groups = groupByAccount(items)
@@ -322,7 +327,7 @@ async function run(
         await call(accountId, ids)
       } catch (e) {
         failed++
-        useStatus.getState().toast({ tone: 'error', message: t('mail.actionFailed', { reason: (e as Error).message }) })
+        if (!quiet) useStatus.getState().toast({ tone: 'error', message: t('mail.actionFailed', { reason: (e as Error).message }) })
       } finally {
         syncAfter(accountId)
       }
@@ -359,6 +364,12 @@ export const mailActions = {
       (a, ids) => providerFor(a).setTags(a, ids.map((id) => byId.get(`${a}|${id}`)!).map((m) => ({ id: m.id, tags: m.tags })), add, remove),
     )
   },
+  /** Out of the Inbox until `until` (see snooze.ts). */
+  snooze: (items: Item[], until: number, count = items.length) =>
+    run(items, 'remove', (a, ids) => providerFor(a).snooze(a, ids, until), i18n.t('mail.snoozed', { count, time: shortDateTime(until) })),
+  /** Back to the Inbox now, unread. `quiet`: no messages (the automatic wake-up reports itself). */
+  unsnooze: (items: Item[], count = items.length, quiet = false) =>
+    run(items, 'remove', (a, ids) => providerFor(a).unsnooze(a, ids), quiet ? undefined : i18n.t('mail.unsnoozed', { count }), quiet),
   deleteForever: (items: Item[], count = items.length) =>
     run(items, 'remove', (a, ids) => providerFor(a).deleteForever(a, ids), i18n.t('mail.deletedForever', { count })),
 }

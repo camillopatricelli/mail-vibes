@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { displayName, fullDate, listDate } from '../lib/format'
+import { displayName, fullDate, listDate, shortDateTime } from '../lib/format'
 import { href, useLocation } from '../lib/router'
 import { timeAgo, useNow } from '../lib/time'
 import { accountLabel, useSettings, type AccountSettings } from '../settings/store'
@@ -16,12 +16,14 @@ import { TagChip, TagDialog, tagColor } from './Tags'
 import { MailTaskDialog } from '../tasks/MailTaskDialog'
 import { AddressMenu } from './AddressMenu'
 import { MessageBody } from './MessageBody'
+import { SnoozeDialog } from './SnoozeDialog'
 import { goMail, isMixed, mailHref, parseMailParams, sameView, uiFolder, viewTarget, type MailView, type UiFolder } from './routes'
 import { folderKinds, type FolderKind, type ListTarget, type MailMessage, type MailSummary } from './types'
 
 const folderIcons: Record<FolderKind, IconName> = {
   inbox: 'inbox',
   starred: 'star',
+  snoozed: 'snooze',
   sent: 'send',
   drafts: 'drafts',
   archive: 'archive',
@@ -277,7 +279,11 @@ interface RowDialogs {
   onMove: (th: ThreadSummary) => void
   onTags: (th: ThreadSummary) => void
   onTask: (th: ThreadSummary) => void
+  onSnooze: (th: ThreadSummary) => void
 }
+
+/** Where conversations can be snoozed from (they go back to the Inbox later). */
+const canSnooze = (f: UiFolder) => !['sent', 'drafts', 'trash', 'spam'].includes(f)
 
 function ThreadRow({
   th,
@@ -334,13 +340,22 @@ function ThreadRow({
         </span>
         <span className="thread-row__meta">
           {th.hasAttachments && <Icon name="attach_file" size={18} label={t('mail.hasAttachments')} />}
-          <span className="thread-row__date body-small">{listDate(th.date)}</span>
+          {folder === 'snoozed' && th.snoozedUntil ? (
+            <span className="thread-row__date body-small snooze-until" title={t('snooze.until', { time: fullDate(th.snoozedUntil) })}>
+              <Icon name="snooze" size={16} />
+              {shortDateTime(th.snoozedUntil)}
+            </span>
+          ) : (
+            <span className="thread-row__date body-small">{listDate(th.date)}</span>
+          )}
         </span>
       </button>
       <span className="thread-row__actions">
         {(folder === 'inbox' || folder === 'custom' || isMixed(folder)) && (
           <IconButton icon="archive" label={t('mail.archive')} onClick={() => void mailActions.archive(items, 1, isMixed(folder))} />
         )}
+        {folder === 'snoozed' && <IconButton icon="alarm_off" label={t('mail.unsnooze')} onClick={() => void mailActions.unsnooze(items, 1)} />}
+        {canSnooze(folder) && <IconButton icon="snooze" label={folder === 'snoozed' ? t('mail.resnooze') : t('mail.snooze')} onClick={() => dialogs.onSnooze(th)} />}
         {folder !== 'trash' ? (
           <IconButton icon="delete" label={t('mail.delete')} onClick={() => void mailActions.trash(items, 1)} />
         ) : (
@@ -451,7 +466,9 @@ function MailList({ view }: { view: MailView }) {
   const [tagging, setTagging] = useState<MailSummary[] | null>(null)
   const [rowMove, setRowMove] = useState<ThreadSummary | null>(null)
   const [taskFrom, setTaskFrom] = useState<MailSummary | null>(null)
+  const [snoozing, setSnoozing] = useState<ThreadSummary[] | null>(null)
   const dialogs: RowDialogs = {
+    onSnooze: (th) => setSnoozing([th]),
     onMove: setRowMove,
     onTags: (th) => setTagging(th.messages),
     onTask: (th) => setTaskFrom([...th.messages].reverse().find((m) => !m.isDraft) ?? null),
@@ -519,6 +536,8 @@ function MailList({ view }: { view: MailView }) {
               <IconButton icon="delete" label={t('mail.delete')} onClick={() => void mailActions.trash(selItems, sel.length).then(clear)} />
             )}
             {folder === 'spam' && <IconButton icon="inbox" label={t('mail.notSpam')} onClick={() => void mailActions.moveToInbox(selItems, sel.length).then(clear)} />}
+            {folder === 'snoozed' && <IconButton icon="alarm_off" label={t('mail.unsnooze')} onClick={() => void mailActions.unsnooze(selItems, sel.length).then(clear)} />}
+            {canSnooze(folder) && <IconButton icon="snooze" label={folder === 'snoozed' ? t('mail.resnooze') : t('mail.snooze')} onClick={() => setSnoozing(sel)} />}
             <IconButton icon="mark_email_read" label={t('mail.markRead')} onClick={() => void mailActions.setRead(selItems, true).then(clear)} />
             <IconButton icon="mark_email_unread" label={t('mail.markUnread')} onClick={() => void mailActions.setRead(selItems, false).then(clear)} />
             <IconButton icon="drive_file_move" label={t('mail.moveTo')} onClick={() => setMoving(true)} />
@@ -582,6 +601,15 @@ function MailList({ view }: { view: MailView }) {
         onPick={(dest, name) => {
           setMoving(false)
           void mailActions.moveTo(selItems, dest, name).then(clear)
+        }}
+      />
+      <SnoozeDialog
+        open={!!snoozing}
+        onClose={() => setSnoozing(null)}
+        onPick={(until) => {
+          const ths = snoozing ?? []
+          setSnoozing(null)
+          void mailActions.snooze(itemsOf(ths), until, ths.length).then(() => ths.length > 1 && clear())
         }}
       />
       <MoveDialog
@@ -701,6 +729,7 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
   const markReadPref = useSettings((s) => s.markRead)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [moving, setMoving] = useState(false)
+  const [snoozingThread, setSnoozingThread] = useState(false)
   const [taskFrom, setTaskFrom] = useState<MailMessage | null>(null)
   const [tagging, setTagging] = useState(false)
   const allTags = useAllTags()
@@ -769,6 +798,7 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
   const tagged = (n: string) => messages.filter((m) => m.tags.some((x) => x.toLowerCase() === n.toLowerCase()))
   const notTrashed = messages.filter((m) => m.folderKind !== 'trash')
   const movable = messages.filter((m) => m.folderKind !== 'sent' && m.folderKind !== 'drafts' && m.folderKind !== 'trash')
+  const snoozedHere = messages.filter((m) => m.snoozedUntil)
   const isExpanded = (m: MailMessage) => expanded.has(m.id) !== (m.id === latest?.id || !!initiallyUnread.current?.has(m.id))
 
   return (
@@ -797,6 +827,10 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
         ) : (
           latest && <IconButton icon="mark_email_unread" label={t('mail.markUnread')} onClick={() => void mailActions.setRead([latest], false)} />
         )}
+        {snoozedHere.length > 0 && <IconButton icon="alarm_off" label={t('mail.unsnooze')} onClick={() => void mailActions.unsnooze(snoozedHere, 1).then(back)} />}
+        {movable.length > 0 && canSnooze(folder) && (
+          <IconButton icon="snooze" label={snoozedHere.length ? t('mail.resnooze') : t('mail.snooze')} onClick={() => setSnoozingThread(true)} />
+        )}
         {movable.length > 0 && <IconButton icon="drive_file_move" label={t('mail.moveTo')} onClick={() => setMoving(true)} />}
         <IconButton icon="label" label={t('tags.action')} onClick={() => setTagging(true)} />
         {latest && !latest.isDraft && <IconButton icon="add_task" label={t('tasks.addFromMail')} onClick={() => setTaskFrom(latest)} />}
@@ -809,6 +843,12 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
         )}
       </div>
       <h1 className="headline-small thread__subject">{latest?.subject || t('mail.noSubject')}</h1>
+      {snoozedHere.length > 0 && (
+        <p className="body-medium thread__snoozed">
+          <Icon name="snooze" size={18} />
+          {t('snooze.until', { time: fullDate(Math.min(...snoozedHere.map((m) => m.snoozedUntil!))) })}
+        </p>
+      )}
       {threadTags.length > 0 && (
         <div className="thread__tags">
           {threadTags.map((n) => (
@@ -850,6 +890,14 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
       )}
       {tagging && <TagDialog messages={messages} onClose={() => setTagging(false)} />}
       {taskFrom && <MailTaskDialog message={taskFrom} onClose={() => setTaskFrom(null)} />}
+      <SnoozeDialog
+        open={snoozingThread}
+        onClose={() => setSnoozingThread(false)}
+        onPick={(until) => {
+          setSnoozingThread(false)
+          void mailActions.snooze(movable, until, 1).then(back)
+        }}
+      />
       <MoveDialog
         open={moving}
         onClose={() => setMoving(false)}

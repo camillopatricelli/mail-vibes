@@ -16,6 +16,7 @@ import type {
   MailTag,
   ReplyKind,
 } from './types'
+import { SNOOZE_NAME } from './snooze'
 import { escapeHtml, insertIntoBody } from './html'
 
 /** Outlook mail via Microsoft Graph. */
@@ -26,6 +27,7 @@ interface GRecipient {
 interface GMessage {
   id: string
   conversationId: string
+  singleValueExtendedProperties?: { id: string; value?: string }[]
   subject?: string
   bodyPreview?: string
   from?: GRecipient
@@ -55,13 +57,29 @@ interface GAttachment {
   contentBytes?: string
 }
 
-const wellKnown: Record<Exclude<FolderKind, 'starred'>, string> = {
+const wellKnown: Record<Exclude<FolderKind, 'starred' | 'snoozed'>, string> = {
   inbox: 'inbox',
   sent: 'sentitems',
   drafts: 'drafts',
   archive: 'archive',
   trash: 'deleteditems',
   spam: 'junkemail',
+}
+
+/** Wake-up time of a snoozed message (ISO date), stored invisibly on the message. */
+const SNOOZE_PROP = 'String {6c1f7e0a-3b5d-4f2e-9a8c-1d4b7e2f9c35} Name MailVibesSnoozedUntil'
+const SNOOZE_EXPAND = `$expand=singleValueExtendedProperties($filter=id eq '${SNOOZE_PROP}')`
+
+const snoozeFolderCache = new Map<string, string>()
+/** The "Snoozed" folder (at the top of the mailbox), created when asked to. */
+async function snoozeFolderId(accountId: string, create: boolean): Promise<string | undefined> {
+  const known = snoozeFolderCache.get(accountId)
+  if (known) return known
+  const page = await graph<GraphPage<{ id: string }>>(accountId, `/me/mailFolders?$filter=displayName eq '${SNOOZE_NAME}'&$select=id`)
+  let id = page.value[0]?.id
+  if (!id && create) id = (await graph<{ id: string }>(accountId, '/me/mailFolders', { method: 'POST', body: { displayName: SNOOZE_NAME } })).id
+  if (id) snoozeFolderCache.set(accountId, id)
+  return id
 }
 
 const SUMMARY_FIELDS =
@@ -92,18 +110,19 @@ function toSummary(accountId: string, m: GMessage): MailSummary {
     hasAttachments: !!m.hasAttachments,
     isDraft: !!m.isDraft,
     tags: m.categories ?? [],
+    snoozedUntil: Date.parse(m.singleValueExtendedProperties?.find((p) => p.id.toLowerCase() === SNOOZE_PROP.toLowerCase())?.value ?? '') || undefined,
   }
 }
 
 // Well-known folder ids per account, as folderId -> kind (to know where each thread message is).
-const folderIdCache = new Map<string, Promise<Map<string, Exclude<FolderKind, 'starred'>>>>()
+const folderIdCache = new Map<string, Promise<Map<string, Exclude<FolderKind, 'starred' | 'snoozed'>>>>()
 function specialFolderIds(accountId: string) {
   let p = folderIdCache.get(accountId)
   if (!p) {
     p = (async () => {
-      const out = new Map<string, Exclude<FolderKind, 'starred'>>()
+      const out = new Map<string, Exclude<FolderKind, 'starred' | 'snoozed'>>()
       await Promise.all(
-        (Object.entries(wellKnown) as [Exclude<FolderKind, 'starred'>, string][]).map(async ([kind, wk]) => {
+        (Object.entries(wellKnown) as [Exclude<FolderKind, 'starred' | 'snoozed'>, string][]).map(async ([kind, wk]) => {
           try {
             const f = await graph<{ id: string }>(accountId, `/me/mailFolders/${wk}?$select=id`)
             out.set(f.id, kind)
@@ -237,6 +256,15 @@ function toAttachment(a: GAttachment): Attachment {
 export const outlook: MailProvider = {
   async list(accountId, target: ListTarget, count): Promise<ListResult> {
     const top = Math.min(count, 500)
+    if (target === 'snoozed') {
+      const folderId = await snoozeFolderId(accountId, false)
+      if (!folderId) return { messages: [], hasMore: false }
+      const page = await graph<GraphPage<GMessage>>(
+        accountId,
+        `/me/mailFolders/${encodeURIComponent(folderId)}/messages?$orderby=receivedDateTime desc&$top=${top}&$select=${SUMMARY_FIELDS}&${SNOOZE_EXPAND}`,
+      )
+      return { messages: page.value.map((m) => toSummary(accountId, m)), hasMore: !!page['@odata.nextLink'] }
+    }
     if (typeof target === 'object' && 'search' in target) {
       // $search can't be combined with $orderby; Outlook returns the newest matches first.
       const kql = encodeURIComponent(`"${target.search.replace(/["\\]/g, ' ')}"`)
@@ -260,7 +288,7 @@ export const outlook: MailProvider = {
     const [page, special] = await Promise.all([
       graph<GraphPage<GMessage>>(
         accountId,
-        `/me/messages?$filter=conversationId eq '${threadId.replace(/'/g, "''")}'&$top=200&$select=${FULL_FIELDS}`,
+        `/me/messages?$filter=conversationId eq '${threadId.replace(/'/g, "''")}'&$top=200&$select=${FULL_FIELDS}&${SNOOZE_EXPAND}`,
         { headers: HTML_BODY },
       ),
       specialFolderIds(accountId),
@@ -328,6 +356,7 @@ export const outlook: MailProvider = {
 
   async move(accountId, ids, dest) {
     if (typeof dest === 'object' && !('folderId' in dest)) throw new ApiError('Cannot move messages there', 400)
+    if (dest === 'snoozed') throw new ApiError('Cannot move messages there', 400)
     const destinationId = typeof dest === 'string' ? (dest === 'starred' ? 'inbox' : wellKnown[dest]) : dest.folderId
     await batch(accountId, ids.map((id) => ({ method: 'POST', url: `/me/messages/${id}/move`, body: { destinationId } })))
   },
@@ -336,16 +365,31 @@ export const outlook: MailProvider = {
     await batch(accountId, ids.map((id) => ({ method: 'DELETE', url: `/me/messages/${id}` })))
   },
 
+  async snooze(accountId, ids, until) {
+    const destinationId = await snoozeFolderId(accountId, true)
+    const value = new Date(until).toISOString()
+    await batch(accountId, ids.map((id) => ({ method: 'PATCH', url: `/me/messages/${id}`, body: { singleValueExtendedProperties: [{ id: SNOOZE_PROP, value }] } })))
+    await batch(accountId, ids.map((id) => ({ method: 'POST', url: `/me/messages/${id}/move`, body: { destinationId } })))
+  },
+
+  async unsnooze(accountId, ids) {
+    await batch(
+      accountId,
+      ids.map((id) => ({ method: 'PATCH', url: `/me/messages/${id}`, body: { isRead: false, singleValueExtendedProperties: [{ id: SNOOZE_PROP, value: '' }] } })),
+    )
+    await batch(accountId, ids.map((id) => ({ method: 'POST', url: `/me/messages/${id}/move`, body: { destinationId: 'inbox' } })))
+  },
+
   async folders(accountId) {
     type GFolder = { id: string; displayName: string; childFolderCount?: number; unreadItemCount?: number }
-    const [special, hidden] = await Promise.all([specialFolderIds(accountId), hiddenFolderIds(accountId)])
+    const [special, hidden, snoozed] = await Promise.all([specialFolderIds(accountId), hiddenFolderIds(accountId), snoozeFolderId(accountId, false).catch(() => undefined)])
     const out: MailFolder[] = []
     // Walks the whole tree. Sub-folders of system folders (e.g. Inbox > Projects) are shown with
     // the parent's name as a prefix; the system folders themselves are not listed.
     const walk = async (path: string, depth: number, prefix: string) => {
       const page = await graph<GraphPage<GFolder>>(accountId, `${path}?$top=250&$select=id,displayName,childFolderCount,unreadItemCount`)
       for (const f of page.value) {
-        const system = special.has(f.id) || hidden.has(f.id)
+        const system = special.has(f.id) || hidden.has(f.id) || f.id === snoozed
         if (!system) out.push({ id: f.id, name: prefix + f.displayName, depth, unread: f.unreadItemCount ?? 0 })
         if (f.childFolderCount)
           await walk(`/me/mailFolders/${encodeURIComponent(f.id)}/childFolders`, system ? depth : depth + 1, system && !hidden.has(f.id) ? `${f.displayName} › ` : '')
@@ -357,6 +401,7 @@ export const outlook: MailProvider = {
 
   async unreadCount(accountId, folder) {
     if (folder === 'starred') return 0
+    if (folder === 'snoozed') return 0
     const f = await graph<{ unreadItemCount?: number }>(accountId, `/me/mailFolders/${wellKnown[folder]}?$select=unreadItemCount`)
     return f.unreadItemCount ?? 0
   },
