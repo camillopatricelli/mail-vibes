@@ -9,7 +9,8 @@ import react from '@vitejs/plugin-react'
  */
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' https://accounts.google.com/gsi/client",
+  // 'wasm-unsafe-eval' lets pdf.js run its bundled WebAssembly image decoders (no JS eval).
+  "script-src 'self' 'wasm-unsafe-eval' https://accounts.google.com/gsi/client",
   // Email HTML relies heavily on inline <style>; the email frame is sandboxed without scripts.
   "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
   "img-src 'self' data: blob: https:",

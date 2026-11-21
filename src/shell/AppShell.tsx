@@ -7,6 +7,7 @@ import { useSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 import { FilterChip, Icon, IconButton, type IconName } from '../ui/components'
 import { Banners, Toasts } from './Banners'
+import { ComposerStack } from '../mail/Composer'
 import { useNotifyReminder } from './reminders'
 
 const sections: { route: Route; icon: IconName; key: string }[] = [
@@ -160,6 +161,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="page">{children}</div>
       </main>
       <BottomNav active={route} />
+      <ComposerStack />
       <Toasts />
     </div>
   )

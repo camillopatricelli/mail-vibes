@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { href } from '../lib/router'
 import { useSettings } from '../settings/store'
 import { Card, EmptyState, Icon, type IconName } from '../ui/components'
+import { TodayMail } from '../mail/TodayMail'
 
 function NoAccountsHint() {
   const { t } = useTranslation()
@@ -26,13 +27,13 @@ export function TodayPage() {
       <h1 className="headline-small page-title">{t('nav.today')}</h1>
       <NoAccountsHint />
       <div className="today__panels">
-        {panels.map((p) => (
+        {panels.map((p, i) => (
           <Card key={p.title} className="today__panel">
             <header className="today__panel-head">
               <Icon name={p.icon} />
               <h2 className="title-medium">{p.title}</h2>
             </header>
-            <p className="body-medium muted">{t('placeholder.nothing')}</p>
+            {i === 0 ? <TodayMail /> : <p className="body-medium muted">{t('placeholder.comingSoon')}</p>}
           </Card>
         ))}
       </div>
@@ -40,9 +41,9 @@ export function TodayPage() {
   )
 }
 
-export function PlaceholderPage({ section }: { section: 'mail' | 'calendar' | 'tasks' }) {
+export function PlaceholderPage({ section }: { section: 'calendar' | 'tasks' }) {
   const { t } = useTranslation()
-  const icon: IconName = section === 'mail' ? 'inbox' : section === 'calendar' ? 'calendar_month' : 'task_alt'
+  const icon: IconName = section === 'calendar' ? 'calendar_month' : 'task_alt'
   return (
     <div>
       <h1 className="headline-small page-title">{t(`nav.${section}`)}</h1>

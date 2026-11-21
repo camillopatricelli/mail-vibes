@@ -19,9 +19,9 @@ import {
 } from '../settings/store'
 import { useStatus } from '../status/store'
 import { AccountBadge, Button, Card, IconButton } from '../ui/components'
+import { Dialog } from '../ui/overlay'
+import { addMicrosoft, removeAccount } from '../auth/accounts'
 
-/** Account actions are provided by the auth layer once it exists (phase 1+). */
-export const addAccountHandlers: Partial<Record<Provider, () => void>> = {}
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -90,7 +90,6 @@ function AccountRow({ a }: { a: AccountSettings }) {
   const { t } = useTranslation()
   const updateAccount = useSettings((s) => s.updateAccount)
   const tenantName = useSettings((s) => selectTenants(s).find((x) => x.key === a.tenantKey)?.name)
-  const removeAccount = useSettings((s) => s.removeAccount)
   const st = useStatus((s) => s.accounts[a.id])
   const now = useNow()
   const state = st?.error
@@ -119,7 +118,10 @@ function AccountRow({ a }: { a: AccountSettings }) {
           onChange={(color) => updateAccount(a.id, { color })}
         />
       </div>
-      <IconButton icon="delete" label={`${t('settings.removeAccount')} ${a.email}`} onClick={() => removeAccount(a.id)} />
+      <IconButton icon="delete" label={`${t('settings.removeAccount')} ${a.email}`} onClick={() => {
+          if (confirm(t('settings.removeConfirm', { account: a.email }))) void removeAccount(a.id)
+        }}
+      />
     </div>
   )
 }
@@ -238,6 +240,47 @@ function TenantsSection() {
   )
 }
 
+function AddMicrosoftButton() {
+  const { t } = useTranslation()
+  const customTenants = useSettings((s) => s.customTenants)
+  const tenantNames = useSettings((s) => s.tenantNames)
+  const tenants = selectTenants({ customTenants, tenantNames })
+  const [choosing, setChoosing] = useState(false)
+  const start = (key: string) => {
+    setChoosing(false)
+    void addMicrosoft(key)
+  }
+  return (
+    <>
+      <Button
+        variant="tonal"
+        icon="add"
+        onClick={() => {
+          if (tenants.length === 1) start(tenants[0].key)
+          else setChoosing(true)
+        }}
+      >
+        {t('settings.addMicrosoft')}
+      </Button>
+      <Dialog open={choosing} onClose={() => setChoosing(false)} title={t('settings.chooseTenant')}>
+        {tenants.length === 0 ? (
+          <p className="body-medium">{t('settings.noTenants')}</p>
+        ) : (
+          <ul className="folder-list">
+            {tenants.map((x) => (
+              <li key={x.key}>
+                <button type="button" onClick={() => start(x.key)}>
+                  <span className="body-large">{x.name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Dialog>
+    </>
+  )
+}
+
 function DefaultSelect({
   label,
   field,
@@ -301,22 +344,8 @@ export function SettingsPage() {
           <AccountRow key={a.id} a={a} />
         ))}
         <div className="row-wrap">
-          <Button
-            variant="tonal"
-            icon="add"
-            disabled={!addAccountHandlers.microsoft}
-            title={addAccountHandlers.microsoft ? undefined : t('settings.availableLater')}
-            onClick={() => addAccountHandlers.microsoft?.()}
-          >
-            {t('settings.addMicrosoft')}
-          </Button>
-          <Button
-            variant="tonal"
-            icon="add"
-            disabled={!addAccountHandlers.google}
-            title={addAccountHandlers.google ? undefined : t('settings.availableLater')}
-            onClick={() => addAccountHandlers.google?.()}
-          >
+          <AddMicrosoftButton />
+          <Button variant="tonal" icon="add" disabled title={t('settings.availableLater')}>
             {t('settings.addGoogle')}
           </Button>
         </div>
