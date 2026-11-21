@@ -208,6 +208,12 @@ function toAttachment(a: GAttachment): Attachment {
 export const outlook: MailProvider = {
   async list(accountId, target: ListTarget, count): Promise<ListResult> {
     const top = Math.min(count, 500)
+    if (typeof target === 'object' && 'search' in target) {
+      // $search can't be combined with $orderby; Outlook returns the newest matches first.
+      const kql = encodeURIComponent(`"${target.search.replace(/["\\]/g, ' ')}"`)
+      const page = await graph<GraphPage<GMessage>>(accountId, `/me/messages?$search=${kql}&$top=${top}&$select=${SUMMARY_FIELDS}`)
+      return { messages: page.value.map((m) => toSummary(accountId, m)), hasMore: !!page['@odata.nextLink'] }
+    }
     const path =
       typeof target === 'object' && 'tag' in target
         ? `/me/messages?$filter=receivedDateTime ge 1900-01-01T00:00:00Z and categories/any(c:c eq '${encodeURIComponent(quote(target.tag))}')&$orderby=receivedDateTime desc`
@@ -281,7 +287,7 @@ export const outlook: MailProvider = {
   },
 
   async move(accountId, ids, dest) {
-    if (typeof dest === 'object' && 'tag' in dest) throw new ApiError(`Cannot move messages to ${dest.tag}`, 400)
+    if (typeof dest === 'object' && !('folderId' in dest)) throw new ApiError('Cannot move messages there', 400)
     const destinationId = typeof dest === 'string' ? (dest === 'starred' ? 'inbox' : wellKnown[dest]) : dest.folderId
     await batch(accountId, ids.map((id) => ({ method: 'POST', url: `/me/messages/${id}/move`, body: { destinationId } })))
   },

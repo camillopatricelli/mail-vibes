@@ -171,6 +171,19 @@ export const googleCalendar: CalendarProvider = {
     return out
   },
 
+  async search(accountId, calendarId, text, from, to) {
+    const q = new URLSearchParams({
+      q: text,
+      singleEvents: 'true',
+      orderBy: 'startTime',
+      timeMin: new Date(from).toISOString(),
+      timeMax: new Date(to).toISOString(),
+      maxResults: '50',
+    })
+    const r = await google<{ items?: GEvent[] }>(accountId, `${cal(calendarId)}/events?${q}`)
+    return (r.items ?? []).filter((e) => e.status !== 'cancelled' && e.eventType !== 'workingLocation').map((e) => toEvent(accountId, calendarId, e))
+  },
+
   async create(accountId, calendarId, draft) {
     await google(accountId, `${cal(calendarId)}/events?sendUpdates=all&conferenceDataVersion=1`, { method: 'POST', body: body(draft) })
   },

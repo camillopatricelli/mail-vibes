@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { appInfo } from '../config'
 import { href, navigate, useLocation, type Route } from '../lib/router'
@@ -41,8 +41,13 @@ function NotesButton({ asRailItem }: { asRailItem?: boolean }) {
 
 function TopBar() {
   const { t } = useTranslation()
-  const [q, setQ] = useState('')
-  const toast = useStatus((s) => s.toast)
+  const { route, params } = useLocation()
+  const routeQuery = route === 'search' ? (params[0] ?? '') : ''
+  const [q, setQ] = useState(routeQuery)
+  // Keep the box in step with the address (back/forward between searches).
+  useEffect(() => {
+    if (route === 'search') setQ(routeQuery)
+  }, [route, routeQuery])
   return (
     <header className="top-bar">
       <a className="brand" href={href('today')} aria-label={appInfo.name}>
@@ -54,7 +59,7 @@ function TopBar() {
         role="search"
         onSubmit={(e) => {
           e.preventDefault()
-          if (q.trim()) toast({ tone: 'info', message: t('placeholder.comingSoon') })
+          if (q.trim()) navigate('search', q.trim())
         }}
       >
         <Icon name="search" />
@@ -65,7 +70,16 @@ function TopBar() {
           placeholder={t('search.placeholder')}
           aria-label={t('search.placeholder')}
         />
-        {q && <IconButton icon="close" label={t('search.clear')} onClick={() => setQ('')} />}
+        {q && (
+          <IconButton
+            icon="close"
+            label={t('search.clear')}
+            onClick={() => {
+              setQ('')
+              if (route === 'search') history.back()
+            }}
+          />
+        )}
       </form>
       <div className="top-bar__actions">
         <span className="compact-only">

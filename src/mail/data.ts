@@ -86,7 +86,8 @@ export function mailAccounts(accounts: AccountSettings[]) {
   return accounts.filter((a) => a.visible && isMailCapable(a.id))
 }
 
-const targetKey = (t: ListTarget) => (typeof t === 'string' ? t : 'tag' in t ? `tag:${t.tag.toLowerCase()}` : `folder:${t.folderId}`)
+const targetKey = (t: ListTarget) =>
+  typeof t === 'string' ? t : 'tag' in t ? `tag:${t.tag.toLowerCase()}` : 'search' in t ? `search:${t.search}` : `folder:${t.folderId}`
 const listKey = (accountId: string, target: ListTarget, count: number) => ['mail', 'list', accountId, targetKey(target), count] as const
 
 /**

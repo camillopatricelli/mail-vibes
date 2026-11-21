@@ -14,6 +14,15 @@ const it: Messages = {
   search: {
     placeholder: 'Cerca posta, eventi e attività',
     clear: 'Cancella ricerca',
+    prompt: 'Scrivi nella casella di ricerca per cercare email, eventi e attività in tutti gli account.',
+    resultsFor: 'Risultati per “{{q}}”',
+    mailResults: 'Email che corrispondono a “{{q}}”',
+    noMail: 'Nessun messaggio trovato.',
+    allMail: 'Tutti i risultati email',
+    noEvents: 'Nessun evento trovato.',
+    eventsRange: 'Eventi da un anno fa a un anno avanti.',
+    calendarFailed: 'Impossibile cercare in {{calendar}}: {{reason}}',
+    noTasks: 'Nessuna attività trovata (le attività completate da più di 30 giorni non vengono cercate).',
   },
   accounts: {
     googleNotConfigured: "L'accesso Google non è configurato in questa copia dell'app.",

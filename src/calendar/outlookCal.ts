@@ -205,6 +205,25 @@ export const outlookCalendar: CalendarProvider = {
     return out
   },
 
+  async search(accountId, calendarId, text, from, to) {
+    // Graph has no text search for events: scan the period (a few pages at most) and match here.
+    const words = text.toLowerCase().split(/\s+/).filter(Boolean)
+    const out: CalEvent[] = []
+    let url: string | undefined =
+      `/me/calendars/${encodeURIComponent(calendarId)}/calendarView?startDateTime=${new Date(from).toISOString()}` +
+      `&endDateTime=${new Date(to).toISOString()}&$top=250&$select=${FIELDS}`
+    for (let i = 0; url && i < 8; i++) {
+      const page: GraphPage<GEvent> = await graph<GraphPage<GEvent>>(accountId, url, { headers: PREFER })
+      for (const e of page.value) {
+        const ev = toEvent(accountId, calendarId, e)
+        const hay = [ev.title, ev.location, ev.organizer?.name, ev.organizer?.email, ev.descriptionHtml.replace(/<[^>]+>/g, ' ')].join(' ').toLowerCase()
+        if (words.every((w) => hay.includes(w))) out.push(ev)
+      }
+      url = page['@odata.nextLink']
+    }
+    return out
+  },
+
   async create(accountId, calendarId, draft) {
     await graph(accountId, `/me/calendars/${encodeURIComponent(calendarId)}/events`, { method: 'POST', body: body(draft) })
   },

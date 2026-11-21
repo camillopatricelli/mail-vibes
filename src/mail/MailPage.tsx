@@ -16,7 +16,7 @@ import { mailActions, useAllFolders, useAllTags, useFolders, useMergedFolder, us
 import { TagChip, TagDialog, tagColor } from './Tags'
 import { MailTaskDialog } from '../tasks/MailTaskDialog'
 import { MessageBody } from './MessageBody'
-import { goMail, mailHref, parseMailParams, sameView, uiFolder, viewTarget, type MailView, type UiFolder } from './routes'
+import { goMail, isMixed, mailHref, parseMailParams, sameView, uiFolder, viewTarget, type MailView, type UiFolder } from './routes'
 import { folderKinds, type FolderKind, type ListTarget, type MailMessage, type MailSummary } from './types'
 
 const folderIcons: Record<FolderKind, IconName> = {
@@ -151,7 +151,7 @@ function FolderPicker({ view }: { view: MailView }) {
   const { t } = useTranslation()
   const accountFolders = useAllFolders().filter((x) => x.account.provider !== 'google')
   const tags = useAllTags()
-  const value = view.kind === 'well' ? `w:${view.folder}` : view.kind === 'tag' ? `g:${view.name}` : `c:${view.accountId}\n${view.folderId}`
+  const value = view.kind === 'well' ? `w:${view.folder}` : view.kind === 'tag' ? `g:${view.name}` : view.kind === 'search' ? '' : `c:${view.accountId}\n${view.folderId}`
   return (
     <select
       className="select folder-picker compact-only"
@@ -279,8 +279,8 @@ function ThreadRow({
         </span>
       </button>
       <span className="thread-row__actions">
-        {(folder === 'inbox' || folder === 'custom' || folder === 'tag') && (
-          <IconButton icon="archive" label={t('mail.archive')} onClick={() => void mailActions.archive(items, 1, folder === 'tag')} />
+        {(folder === 'inbox' || folder === 'custom' || isMixed(folder)) && (
+          <IconButton icon="archive" label={t('mail.archive')} onClick={() => void mailActions.archive(items, 1, isMixed(folder))} />
         )}
         {folder !== 'trash' ? (
           <IconButton icon="delete" label={t('mail.delete')} onClick={() => void mailActions.trash(items, 1)} />
@@ -405,6 +405,12 @@ function MailList({ view }: { view: MailView }) {
     <div className="mail-list">
       {view.kind === 'custom' && <CustomFolderTitle view={view} />}
       {view.kind === 'tag' && <TagTitle name={view.name} />}
+      {view.kind === 'search' && (
+        <h1 className="title-large custom-folder-title">
+          <Icon name="search" />
+          {t('search.mailResults', { q: view.q })}
+        </h1>
+      )}
       <div className="list-toolbar">
         <input
           type="checkbox"
@@ -424,8 +430,8 @@ function MailList({ view }: { view: MailView }) {
           </>
         ) : (
           <>
-            {(folder === 'inbox' || folder === 'custom' || folder === 'tag') && (
-              <IconButton icon="archive" label={t('mail.archive')} onClick={() => void mailActions.archive(selItems, sel.length, folder === 'tag').then(clear)} />
+            {(folder === 'inbox' || folder === 'custom' || isMixed(folder)) && (
+              <IconButton icon="archive" label={t('mail.archive')} onClick={() => void mailActions.archive(selItems, sel.length, isMixed(folder)).then(clear)} />
             )}
             {folder === 'trash' ? (
               <>
@@ -470,7 +476,7 @@ function MailList({ view }: { view: MailView }) {
           <Spinner label={t('mail.loading')} />
         </div>
       ) : !threads.length && !errors.length ? (
-        <EmptyState icon={view.kind === 'well' ? folderIcons[view.folder] : view.kind === 'tag' ? 'label' : 'folder'} title={t('mail.empty')} />
+        <EmptyState icon={view.kind === 'well' ? folderIcons[view.folder] : view.kind === 'tag' ? 'label' : view.kind === 'search' ? 'search' : 'folder'} title={view.kind === 'search' ? t('search.noMail') : t('mail.empty')} />
       ) : (
         <ul className="thread-list">
           {threads.map((th) => (
@@ -663,7 +669,7 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
 
   const inInbox = messages.filter((m) => m.folderKind === 'inbox')
   const archivable =
-    folder === 'custom' ? messages.filter((m) => !m.folderKind) : folder === 'tag' ? messages.filter((m) => !m.folderKind || m.folderKind === 'inbox') : inInbox
+    folder === 'custom' ? messages.filter((m) => !m.folderKind) : isMixed(folder) ? messages.filter((m) => !m.folderKind || m.folderKind === 'inbox') : inInbox
   const threadTags = [...new Map(messages.flatMap((m) => m.tags).map((n) => [n.toLowerCase(), n])).values()]
   const tagged = (n: string) => messages.filter((m) => m.tags.some((x) => x.toLowerCase() === n.toLowerCase()))
   const notTrashed = messages.filter((m) => m.folderKind !== 'trash')

@@ -444,6 +444,8 @@ export const gmail: MailProvider = {
       if (q.labelIds) params.set('labelIds', q.labelIds)
       if (q.q) params.set('q', q.q)
       if (q.spamTrash) params.set('includeSpamTrash', 'true')
+    } else if ('search' in target) {
+      params.set('q', target.search)
     } else if ('tag' in target) {
       const label = (await labelInfo(accountId)).byName.get(target.tag.toLowerCase())
       if (!label) return { messages: [], hasMore: false }
@@ -499,7 +501,7 @@ export const gmail: MailProvider = {
 
   async move(accountId, ids, dest) {
     if (typeof dest !== 'string') {
-      if ('tag' in dest) throw new ApiError(`Cannot move messages to ${dest.tag}`, 400)
+      if (!('folderId' in dest)) throw new ApiError('Cannot move messages there', 400)
       return modify(accountId, ids, [dest.folderId], ['INBOX', 'SPAM'])
     }
     switch (dest) {

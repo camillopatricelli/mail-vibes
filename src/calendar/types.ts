@@ -83,6 +83,8 @@ export interface EventDraft {
 export interface CalendarProvider {
   calendars(accountId: string): Promise<CalendarInfo[]>
   events(accountId: string, calendarId: string, from: number, to: number): Promise<CalEvent[]>
+  /** Events between `from` and `to` whose title, place or description contain the text */
+  search(accountId: string, calendarId: string, text: string, from: number, to: number): Promise<CalEvent[]>
   create(accountId: string, calendarId: string, draft: EventDraft): Promise<void>
   /** Updates one event (for a recurring series: only this occurrence) */
   update(accountId: string, calendarId: string, eventId: string, draft: Partial<EventDraft>): Promise<void>

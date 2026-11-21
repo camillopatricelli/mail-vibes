@@ -4,6 +4,7 @@ import { applyLanguage, resolveLanguage } from './i18n'
 import { MailPage } from './mail/MailPage'
 import { CalendarPage } from './calendar/CalendarPage'
 import { TasksPage } from './tasks/TasksPage'
+import { SearchPage } from './search/SearchPage'
 import { navigate, useLocation } from './lib/router'
 import { PrivacyPage, TodayPage } from './pages/SimplePages'
 import { SettingsPage } from './pages/SettingsPage'
@@ -57,6 +58,9 @@ export function App() {
       break
     case 'tasks':
       page = <TasksPage />
+      break
+    case 'search':
+      page = <SearchPage />
       break
     case 'settings':
       page = <SettingsPage />

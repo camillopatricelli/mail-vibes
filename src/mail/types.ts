@@ -55,7 +55,7 @@ export interface MailFolder {
 }
 
 /** What a list shows: a well-known folder merged across accounts, or one account's own folder. */
-export type ListTarget = FolderKind | { folderId: string } | { tag: string }
+export type ListTarget = FolderKind | { folderId: string } | { tag: string } | { search: string }
 
 /** A tag as defined in one account (Gmail label or Outlook category). */
 export interface MailTag {

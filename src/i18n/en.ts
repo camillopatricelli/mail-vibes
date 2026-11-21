@@ -12,6 +12,15 @@ const en = {
   search: {
     placeholder: 'Search mail, events and tasks',
     clear: 'Clear search',
+    prompt: 'Type in the search box to search mail, events and tasks in every account.',
+    resultsFor: 'Results for “{{q}}”',
+    mailResults: 'Mail matching “{{q}}”',
+    noMail: 'No messages found.',
+    allMail: 'All mail results',
+    noEvents: 'No events found.',
+    eventsRange: 'Events from one year ago to one year ahead.',
+    calendarFailed: 'Could not search {{calendar}}: {{reason}}',
+    noTasks: 'No tasks found (completed tasks older than 30 days are not searched).',
   },
   accounts: {
     googleNotConfigured: 'Google sign-in is not configured for this copy of the app.',
