@@ -60,21 +60,29 @@ export const googleTasks: TaskProvider = {
   },
 
   async tasks(accountId, listId) {
-    const out: Task[] = []
-    let pageToken: string | undefined
-    do {
-      const q = new URLSearchParams({
-        maxResults: '100',
+    // Two requests: "completedMin" filters out every task without a completion date, so it
+    // cannot be combined with the open tasks.
+    const page = async (params: Record<string, string>) => {
+      const out: Task[] = []
+      let pageToken: string | undefined
+      do {
+        const q = new URLSearchParams({ maxResults: '100', ...params })
+        if (pageToken) q.set('pageToken', pageToken)
+        const r = await google<{ items?: GTask[]; nextPageToken?: string }>(accountId, `${listUrl(listId)}?${q}`)
+        for (const t of r.items ?? []) if (!t.deleted && (t.title || t.notes)) out.push(toTask(accountId, listId, t))
+        pageToken = r.nextPageToken
+      } while (pageToken)
+      return out
+    }
+    const [open, done] = await Promise.all([
+      page({ showCompleted: 'false' }),
+      page({
         showCompleted: 'true',
         showHidden: 'true',
         completedMin: new Date(Date.now() - COMPLETED_DAYS * 86_400_000).toISOString(),
-      })
-      if (pageToken) q.set('pageToken', pageToken)
-      const r = await google<{ items?: GTask[]; nextPageToken?: string }>(accountId, `${listUrl(listId)}?${q}`)
-      for (const t of r.items ?? []) if (!t.deleted && (t.title || t.notes)) out.push(toTask(accountId, listId, t))
-      pageToken = r.nextPageToken
-    } while (pageToken)
-    return out
+      }),
+    ])
+    return [...open, ...done.filter((t) => t.completed)]
   },
 
   async create(accountId, listId, draft) {
