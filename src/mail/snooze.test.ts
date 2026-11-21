@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isSnoozeLabel, parseSnoozeStamp, snoozeLabelName, snoozeLabelTime, snoozePresets, snoozeStamp } from './snooze'
+import { isAppLabel, parseSnoozeStamp, snoozePresets, snoozeStamp, timedLabelName, timedLabelTime } from './snooze'
 
 const local = (y: number, mo: number, d: number, h = 0, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime()
 
@@ -14,12 +14,14 @@ describe('snooze stamps', () => {
 
   it('names and reads labels', () => {
     const t = local(2026, 1, 2, 18, 30)
-    expect(snoozeLabelName(t)).toBe('Snoozed/2026-01-02 18.30')
-    expect(snoozeLabelTime('Snoozed/2026-01-02 18.30')).toBe(t)
-    expect(snoozeLabelTime('Clients/2026-01-02 18.30')).toBeUndefined()
-    expect(isSnoozeLabel('Snoozed')).toBe(true)
-    expect(isSnoozeLabel('Snoozed/x')).toBe(true)
-    expect(isSnoozeLabel('Snoozedish')).toBe(false)
+    expect(timedLabelName('Snoozed', t)).toBe('Mail Vibes/Snoozed/2026-01-02 18.30')
+    expect(timedLabelTime('Mail Vibes/Snoozed/2026-01-02 18.30', 'Snoozed')).toBe(t)
+    expect(timedLabelTime('Mail Vibes/Send later/2026-01-02 18.30', 'Snoozed')).toBeUndefined()
+    expect(timedLabelTime('Mail Vibes/Send later/2026-01-02 18.30', 'Send later')).toBe(t)
+    expect(timedLabelTime('Clients/2026-01-02 18.30', 'Snoozed')).toBeUndefined()
+    expect(isAppLabel('Mail Vibes')).toBe(true)
+    expect(isAppLabel('Mail Vibes/Snoozed')).toBe(true)
+    expect(isAppLabel('Mail Vibesish')).toBe(false)
   })
 })
 

@@ -270,7 +270,7 @@ export function useAllTags() {
 
 // ---------- Actions ----------
 
-type Patch = Partial<Pick<MailSummary, 'isRead' | 'isFlagged' | 'tags'>> | ((m: MailSummary) => Partial<MailSummary>)
+type Patch = Partial<Pick<MailSummary, 'isRead' | 'isFlagged' | 'tags' | 'scheduledAt'>> | ((m: MailSummary) => Partial<MailSummary>)
 
 /** Applies a change to the cached lists and threads immediately (optimistic update). */
 function patchCaches(accountId: string, ids: Set<string>, patch: Patch | 'remove') {
@@ -370,6 +370,16 @@ export const mailActions = {
   /** Back to the Inbox now, unread. `quiet`: no messages (the automatic wake-up reports itself). */
   unsnooze: (items: Item[], count = items.length, quiet = false) =>
     run(items, 'remove', (a, ids) => providerFor(a).unsnooze(a, ids), quiet ? undefined : i18n.t('mail.unsnoozed', { count }), quiet),
+  /** Scheduled messages back to Drafts. */
+  unschedule: (items: Item[], count = items.length) =>
+    run(items, 'remove', async (a, ids) => {
+      for (const id of ids) await providerFor(a).unschedule(a, id)
+    }, i18n.t('mail.unscheduled', { count })),
+  /** A new send time for scheduled messages. */
+  reschedule: (items: Item[], at: number) =>
+    run(items, { scheduledAt: at }, async (a, ids) => {
+      for (const id of ids) await providerFor(a).scheduleDraft(a, id, at)
+    }, i18n.t('compose.scheduled', { time: shortDateTime(at) })),
   deleteForever: (items: Item[], count = items.length) =>
     run(items, 'remove', (a, ids) => providerFor(a).deleteForever(a, ids), i18n.t('mail.deletedForever', { count })),
 }

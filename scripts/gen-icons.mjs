@@ -12,7 +12,7 @@ check_circle radio_button_unchecked lock sync person_add schedule notifications 
 keyboard_arrow_up visibility visibility_off palette language privacy_tip contacts drive_file_move
 dark_mode light_mode filter_list cloud_off link today event home code
 location_on group repeat help view_day view_week view_agenda subject calendar_view_month add_task content_copy
-unfold_less unfold_more snooze alarm_off
+unfold_less unfold_more snooze alarm_off schedule_send cancel_schedule_send
 `.trim().split(/\s+/)
 
 const dir = 'node_modules/@material-symbols/svg-400/outlined'

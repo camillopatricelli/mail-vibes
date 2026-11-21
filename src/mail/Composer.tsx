@@ -19,6 +19,7 @@ import {
   useCompose,
   type Composer,
 } from './compose'
+import { SnoozeDialog } from './SnoozeDialog'
 import type { Address } from './types'
 
 export function RecipientField({
@@ -194,6 +195,7 @@ function ComposerWindow({ c }: { c: Composer }) {
   const patch = useCompose((s) => s.patch)
   const [showCcBcc, setShowCcBcc] = useState(c.content.cc.length > 0 || c.content.bcc.length > 0)
   const fileInput = useRef<HTMLInputElement>(null)
+  const [pickingTime, setPickingTime] = useState(false)
   const title =
     c.content.subject ||
     (c.mode === 'new' ? t('compose.newMessage') : c.mode === 'forward' ? t('mail.forward') : c.mode === 'draft' ? t('mail.draft') : t('mail.reply'))
@@ -307,6 +309,16 @@ function ComposerWindow({ c }: { c: Composer }) {
             <Button variant="filled" icon="send" disabled={busy} onClick={() => void send(c.id)}>
               {c.phase === 'sending' ? t('compose.sending') : t('compose.send')}
             </Button>
+            <IconButton icon="schedule_send" label={t('compose.sendLater')} disabled={busy} onClick={() => setPickingTime(true)} />
+            <SnoozeDialog
+              mode="send"
+              open={pickingTime}
+              onClose={() => setPickingTime(false)}
+              onPick={(at) => {
+                setPickingTime(false)
+                void send(c.id, at)
+              }}
+            />
             <IconButton icon="attach_file" label={t('compose.attach')} disabled={busy} onClick={() => fileInput.current?.click()} />
             <input
               ref={fileInput}

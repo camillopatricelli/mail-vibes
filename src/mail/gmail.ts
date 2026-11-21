@@ -5,7 +5,7 @@ import { useSettings } from '../settings/store'
 import { sanitizeForEditor, escapeHtml } from './html'
 import { buildMime, decodeBase64Url, decodeText, parseAddressHeader, type MimeAttachment } from './mime'
 import type { Address, Attachment, DraftContent, FolderKind, ListTarget, MailFolder, MailMessage, MailProvider, MailSummary, MailTag } from './types'
-import { isSnoozeLabel, snoozeLabelName, snoozeLabelTime } from './snooze'
+import { isAppLabel, timedLabelName, timedLabelTime, type TimedLabel } from './snooze'
 
 /**
  * Gmail via the Gmail REST API. Gmail has labels instead of folders: well-known folders map to
@@ -74,14 +74,44 @@ async function labelsFor(accountId: string, msgs: { labelIds?: string[] }[]) {
 }
 
 const labelNamesOf = (m: GMsg, labels?: LabelInfo) => (m.labelIds ?? []).flatMap((id) => labels?.byId.get(id)?.name ?? [])
-const tagsOf = (m: GMsg, labels?: LabelInfo) => labelNamesOf(m, labels).filter((n) => !isSnoozeLabel(n))
-function snoozedUntilOf(m: GMsg, labels?: LabelInfo) {
-  const times = labelNamesOf(m, labels).flatMap((n) => snoozeLabelTime(n) ?? [])
+const tagsOf = (m: GMsg, labels?: LabelInfo) => labelNamesOf(m, labels).filter((n) => !isAppLabel(n))
+/** The earliest time among the message's labels of this kind (see snooze.ts). */
+function timeOf(m: GMsg, kind: TimedLabel, labels?: LabelInfo) {
+  const times = labelNamesOf(m, labels).flatMap((n) => timedLabelTime(n, kind) ?? [])
   return times.length ? Math.min(...times) : undefined
 }
 
-/** The account's "Snoozed/<time>" labels. */
-const snoozeLabels = (info: LabelInfo) => [...info.byId.values()].filter((l) => snoozeLabelTime(l.name) !== undefined)
+/** The account's labels of one kind ("Mail Vibes/Snoozed/<time>", …). */
+const timedLabels = (info: LabelInfo, kind: TimedLabel) => [...info.byId.values()].filter((l) => timedLabelTime(l.name, kind) !== undefined)
+
+/** Messages carrying any label of this kind. */
+async function listTimed(accountId: string, kind: TimedLabel, count: number) {
+  const labels = timedLabels(await labelInfo(accountId, true), kind)
+  const pages = await Promise.all(
+    labels.map((l) =>
+      google<{ messages?: { id: string }[] }>(accountId, `${API}/messages?${new URLSearchParams({ labelIds: l.id, maxResults: String(Math.min(count, 500)) })}`),
+    ),
+  )
+  const ids = [...new Set(pages.flatMap((p) => (p.messages ?? []).map((m) => m.id)))]
+  const cache = await summaries(accountId, ids)
+  const found = ids.flatMap((id) => cache.get(id) ?? [])
+  const info = await labelsFor(accountId, found)
+  return { messages: found.map((m) => toSummary(accountId, m, info)), hasMore: false }
+}
+
+/** Gives messages the label of `at` (removing other times of that kind). */
+async function setTimed(accountId: string, ids: string[], kind: TimedLabel, at: number, add: string[], remove: string[]) {
+  const label = await ensureLabel(accountId, timedLabelName(kind, at))
+  const others = timedLabels(await labelInfo(accountId), kind).map((l) => l.id).filter((id) => id !== label.id)
+  await modify(accountId, ids, [label.id, ...add], [...remove, ...others])
+  await dropEmptyTimedLabels(accountId)
+}
+
+async function clearTimed(accountId: string, ids: string[], kind: TimedLabel, add: string[]) {
+  const all = timedLabels(await labelInfo(accountId), kind).map((l) => l.id)
+  await modify(accountId, ids, add, all)
+  await dropEmptyTimedLabels(accountId)
+}
 
 /** A user label by name, created (with its parent, for nesting in Gmail) if missing. */
 async function ensureLabel(accountId: string, name: string): Promise<GLabel> {
@@ -102,9 +132,10 @@ async function ensureLabel(accountId: string, name: string): Promise<GLabel> {
   return label!
 }
 
-/** Deletes "Snoozed/<time>" labels no message carries any more. */
-async function dropEmptySnoozeLabels(accountId: string) {
-  const labels = snoozeLabels(await labelInfo(accountId, true))
+/** Deletes time labels (see snooze.ts) no message carries any more. */
+async function dropEmptyTimedLabels(accountId: string) {
+  const info = await labelInfo(accountId, true)
+  const labels = [...timedLabels(info, 'Snoozed'), ...timedLabels(info, 'Send later')]
   let dropped = false
   for (const l of labels) {
     const c = await google<{ messagesTotal?: number }>(accountId, `${API}/labels/${l.id}?fields=messagesTotal`).catch(() => undefined)
@@ -194,7 +225,8 @@ function toSummary(accountId: string, m: GMsg, info?: LabelInfo): MailSummary {
     hasAttachments: m.payload?.mimeType === 'multipart/mixed' || attachmentsOf(m.payload).some((a) => !a.isInline),
     isDraft: labels.includes('DRAFT'),
     tags: tagsOf(m, info),
-    snoozedUntil: snoozedUntilOf(m, info),
+    snoozedUntil: timeOf(m, 'Snoozed', info),
+    scheduledAt: timeOf(m, 'Send later', info),
   }
 }
 
@@ -217,7 +249,8 @@ function toMessage(accountId: string, m: GMsg, labels?: LabelInfo): MailMessage 
 const listQuery: Record<FolderKind, { labelIds?: string; q?: string; spamTrash?: boolean }> = {
   inbox: { labelIds: 'INBOX' },
   starred: { labelIds: 'STARRED' },
-  snoozed: {}, // listed per "Snoozed/<time>" label, see list()
+  snoozed: {}, // listed per label, see list()
+  scheduled: {},
   sent: { labelIds: 'SENT' },
   drafts: { labelIds: 'DRAFT' },
   // Gmail has no Archive label: "archived" is everything that is not in another well-known place.
@@ -482,19 +515,8 @@ async function draftState(accountId: string, id: string): Promise<DraftState> {
 
 export const gmail: MailProvider = {
   async list(accountId, target: ListTarget, count) {
-    if (target === 'snoozed') {
-      const labels = snoozeLabels(await labelInfo(accountId, true))
-      const pages = await Promise.all(
-        labels.map((l) =>
-          google<{ messages?: { id: string }[] }>(accountId, `${API}/messages?${new URLSearchParams({ labelIds: l.id, maxResults: String(Math.min(count, 500)) })}`),
-        ),
-      )
-      const ids = [...new Set(pages.flatMap((p) => (p.messages ?? []).map((m) => m.id)))]
-      const cache = await summaries(accountId, ids)
-      const found = ids.flatMap((id) => cache.get(id) ?? [])
-      const info = await labelsFor(accountId, found)
-      return { messages: found.map((m) => toSummary(accountId, m, info)), hasMore: false }
-    }
+    if (target === 'snoozed') return listTimed(accountId, 'Snoozed', count)
+    if (target === 'scheduled') return listTimed(accountId, 'Send later', count)
     const params = new URLSearchParams({ maxResults: String(Math.min(count, 500)) })
     if (typeof target === 'string') {
       const q = listQuery[target]
@@ -514,7 +536,7 @@ export const gmail: MailProvider = {
     const found = ids.flatMap((id) => cache.get(id) ?? [])
     const labels = await labelsFor(accountId, found)
     return {
-      messages: found.map((m) => toSummary(accountId, m, labels)),
+      messages: found.map((m) => toSummary(accountId, m, labels)).filter((m) => target !== 'drafts' || !m.scheduledAt),
       hasMore: !!page.nextPageToken,
     }
   },
@@ -535,7 +557,7 @@ export const gmail: MailProvider = {
 
   async tags(accountId) {
     const info = await labelInfo(accountId, true)
-    return [...info.byId.values()].filter((l) => !isSnoozeLabel(l.name)).map((l): MailTag => ({ name: l.name, color: l.color?.backgroundColor }))
+    return [...info.byId.values()].filter((l) => !isAppLabel(l.name)).map((l): MailTag => ({ name: l.name, color: l.color?.backgroundColor }))
   },
 
   async setTags(accountId, messages, add, remove) {
@@ -584,22 +606,34 @@ export const gmail: MailProvider = {
     throw new ApiError(i18n.t('mail.gmailNoDeleteForever'), 403)
   },
 
-  async snooze(accountId, ids, until) {
-    const label = await ensureLabel(accountId, snoozeLabelName(until))
-    const others = snoozeLabels(await labelInfo(accountId)).map((l) => l.id).filter((id) => id !== label.id)
-    await modify(accountId, ids, [label.id], ['INBOX', ...others])
-    await dropEmptySnoozeLabels(accountId)
+  snooze: (accountId, ids, until) => setTimed(accountId, ids, 'Snoozed', until, [], ['INBOX']),
+
+  unsnooze: (accountId, ids) => clearTimed(accountId, ids, 'Snoozed', ['INBOX', 'UNREAD']),
+
+  sendsScheduledItself: false,
+
+  async scheduleDraft(accountId, draftId, at) {
+    const id = drafts.get(draftKey(accountId, draftId))?.draftId ?? (await resolveDraftId(accountId, draftId))
+    const d = await google<{ message: { id: string } }>(accountId, `${API}/drafts/${id}?format=minimal`)
+    await setTimed(accountId, [d.message.id], 'Send later', at, [], [])
+    drafts.delete(draftKey(accountId, draftId))
   },
 
-  async unsnooze(accountId, ids) {
-    const all = snoozeLabels(await labelInfo(accountId)).map((l) => l.id)
-    await modify(accountId, ids, ['INBOX', 'UNREAD'], all)
-    await dropEmptySnoozeLabels(accountId)
+  async unschedule(accountId, id) {
+    await clearTimed(accountId, [id], 'Send later', [])
+    return id
+  },
+
+  async sendScheduled(accountId, id) {
+    const draftId = await resolveDraftId(accountId, id)
+    // The label goes first, so the sent message doesn't carry it.
+    await clearTimed(accountId, [id], 'Send later', [])
+    await google(accountId, `${API}/drafts/send`, { method: 'POST', body: { id: draftId } })
   },
 
   async folders(accountId) {
     const r = await google<{ labels?: GLabel[] }>(accountId, `${API}/labels`)
-    const user = (r.labels ?? []).filter((l) => l.type === 'user' && !isSnoozeLabel(l.name)).sort((a, b) => a.name.localeCompare(b.name))
+    const user = (r.labels ?? []).filter((l) => l.type === 'user' && !isAppLabel(l.name)).sort((a, b) => a.name.localeCompare(b.name))
     const parts = await googleBatch<GLabel>(
       accountId,
       BATCH,

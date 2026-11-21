@@ -12,8 +12,19 @@ const inputValue = (ms: number) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/** "Snooze until…": the quick choices, or a date and time. */
-export function SnoozeDialog({ open, onClose, onPick }: { open: boolean; onClose: () => void; onPick: (until: number) => void }) {
+/** "Snooze until…" or "Send later…": the quick choices, or a date and time. */
+export function SnoozeDialog({
+  open,
+  onClose,
+  onPick,
+  mode = 'snooze',
+}: {
+  open: boolean
+  onClose: () => void
+  onPick: (until: number) => void
+  mode?: 'snooze' | 'send'
+}) {
+  const send = mode === 'send'
   const { t } = useTranslation()
   const presets = snoozePresets()
   const [custom, setCustom] = useState('')
@@ -23,7 +34,7 @@ export function SnoozeDialog({ open, onClose, onPick }: { open: boolean; onClose
     <Dialog
       open={open}
       onClose={onClose}
-      title={t('snooze.title')}
+      title={send ? t('compose.sendLaterTitle') : t('snooze.title')}
       actions={
         <>
           <span className="spacer" />
@@ -37,7 +48,7 @@ export function SnoozeDialog({ open, onClose, onPick }: { open: boolean; onClose
         {presets.map((p) => (
           <li key={p.id}>
             <button type="button" onClick={() => onPick(p.until)}>
-              <Icon name="snooze" size={20} />
+              <Icon name={send ? 'schedule_send' : 'snooze'} size={20} />
               <span className="body-large">{t(`snooze.${p.id}`)}</span>
               <span className="body-medium muted snooze-list__time">{shortDateTime(p.until)}</span>
             </button>
@@ -56,12 +67,12 @@ export function SnoozeDialog({ open, onClose, onPick }: { open: boolean; onClose
         </label>
         <div className="snooze-custom__row">
           <input id="snooze-custom" type="datetime-local" className="select" min={inputValue(Date.now())} value={custom} onChange={(e) => setCustom(e.target.value)} />
-          <Button type="submit" disabled={!customOk} icon="snooze">
-            {t('mail.snooze')}
+          <Button type="submit" disabled={!customOk} icon={send ? 'schedule_send' : 'snooze'}>
+            {send ? t('compose.sendLater') : t('mail.snooze')}
           </Button>
         </div>
       </form>
-      <p className="body-small muted snooze-note">{t('snooze.note')}</p>
+      <p className="body-small muted snooze-note">{send ? t('compose.sendLaterNote') : t('snooze.note')}</p>
     </Dialog>
   )
 }

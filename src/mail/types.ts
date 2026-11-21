@@ -1,7 +1,7 @@
 /** Provider-neutral mail model. Outlook (Graph) and Gmail adapters both map to these types. */
 
-export type FolderKind = 'inbox' | 'starred' | 'snoozed' | 'sent' | 'drafts' | 'archive' | 'trash' | 'spam'
-export const folderKinds: FolderKind[] = ['inbox', 'starred', 'snoozed', 'sent', 'drafts', 'archive', 'trash', 'spam']
+export type FolderKind = 'inbox' | 'starred' | 'snoozed' | 'sent' | 'drafts' | 'scheduled' | 'archive' | 'trash' | 'spam'
+export const folderKinds: FolderKind[] = ['inbox', 'starred', 'snoozed', 'sent', 'drafts', 'scheduled', 'archive', 'trash', 'spam']
 
 export interface Address {
   name: string
@@ -26,6 +26,8 @@ export interface MailSummary {
   tags: string[]
   /** When a snoozed message comes back to the Inbox (see snooze.ts) */
   snoozedUntil?: number
+  /** When a message waiting to be sent goes out (see snooze.ts) */
+  scheduledAt?: number
 }
 
 export interface Attachment {
@@ -118,6 +120,14 @@ export interface MailProvider {
   addAttachment(accountId: string, draftId: string, file: File, onProgress?: (fraction: number) => void): Promise<Attachment[]>
   removeAttachment(accountId: string, draftId: string, attachmentId: string): Promise<void>
   sendDraft(accountId: string, draftId: string): Promise<void>
+  /** Sends the draft at `at` instead of now (see snooze.ts); also changes the time of a scheduled message */
+  scheduleDraft(accountId: string, draftId: string, at: number): Promise<void>
+  /** Turns a scheduled message back into a draft; answers the id to open it with */
+  unschedule(accountId: string, id: string): Promise<string>
+  /** True if the server sends scheduled messages by itself; else the app sends them (sendScheduled) */
+  readonly sendsScheduledItself: boolean
+  /** Sends a scheduled message whose time has come (only for providers that don't do it themselves) */
+  sendScheduled(accountId: string, id: string): Promise<void>
   deleteDraft(accountId: string, draftId: string): Promise<void>
   /** Loads an existing draft (from the Drafts folder) for editing */
   loadDraft(accountId: string, draftId: string): Promise<{ content: DraftContent; attachments: Attachment[] }>

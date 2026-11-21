@@ -16,7 +16,7 @@ import type {
   MailTag,
   ReplyKind,
 } from './types'
-import { SNOOZE_NAME } from './snooze'
+import { SNOOZE_FOLDER } from './snooze'
 import { escapeHtml, insertIntoBody } from './html'
 
 /** Outlook mail via Microsoft Graph. */
@@ -57,7 +57,8 @@ interface GAttachment {
   contentBytes?: string
 }
 
-const wellKnown: Record<Exclude<FolderKind, 'starred' | 'snoozed'>, string> = {
+type PlainFolder = Exclude<FolderKind, 'starred' | 'snoozed' | 'scheduled'>
+const wellKnown: Record<PlainFolder, string> = {
   inbox: 'inbox',
   sent: 'sentitems',
   drafts: 'drafts',
@@ -69,15 +70,19 @@ const wellKnown: Record<Exclude<FolderKind, 'starred' | 'snoozed'>, string> = {
 /** Wake-up time of a snoozed message (ISO date), stored invisibly on the message. */
 const SNOOZE_PROP = 'String {6c1f7e0a-3b5d-4f2e-9a8c-1d4b7e2f9c35} Name MailVibesSnoozedUntil'
 const SNOOZE_EXPAND = `$expand=singleValueExtendedProperties($filter=id eq '${SNOOZE_PROP}')`
+/** Exchange's own "send at" time (PidTagDeferredSendTime): the message waits in the Outbox until then. */
+const DEFERRED_PROP = 'SystemTime 0x3FEF'
+const DEFERRED_EXPAND = `$expand=singleValueExtendedProperties($filter=id eq '${DEFERRED_PROP}')`
+const propValue = (m: GMessage, id: string) => m.singleValueExtendedProperties?.find((p) => p.id.toLowerCase() === id.toLowerCase())?.value
 
 const snoozeFolderCache = new Map<string, string>()
 /** The "Snoozed" folder (at the top of the mailbox), created when asked to. */
 async function snoozeFolderId(accountId: string, create: boolean): Promise<string | undefined> {
   const known = snoozeFolderCache.get(accountId)
   if (known) return known
-  const page = await graph<GraphPage<{ id: string }>>(accountId, `/me/mailFolders?$filter=displayName eq '${SNOOZE_NAME}'&$select=id`)
+  const page = await graph<GraphPage<{ id: string }>>(accountId, `/me/mailFolders?$filter=displayName eq '${SNOOZE_FOLDER}'&$select=id`)
   let id = page.value[0]?.id
-  if (!id && create) id = (await graph<{ id: string }>(accountId, '/me/mailFolders', { method: 'POST', body: { displayName: SNOOZE_NAME } })).id
+  if (!id && create) id = (await graph<{ id: string }>(accountId, '/me/mailFolders', { method: 'POST', body: { displayName: SNOOZE_FOLDER } })).id
   if (id) snoozeFolderCache.set(accountId, id)
   return id
 }
@@ -110,19 +115,20 @@ function toSummary(accountId: string, m: GMessage): MailSummary {
     hasAttachments: !!m.hasAttachments,
     isDraft: !!m.isDraft,
     tags: m.categories ?? [],
-    snoozedUntil: Date.parse(m.singleValueExtendedProperties?.find((p) => p.id.toLowerCase() === SNOOZE_PROP.toLowerCase())?.value ?? '') || undefined,
+    snoozedUntil: Date.parse(propValue(m, SNOOZE_PROP) ?? '') || undefined,
+    scheduledAt: Date.parse(propValue(m, DEFERRED_PROP) ?? '') || undefined,
   }
 }
 
 // Well-known folder ids per account, as folderId -> kind (to know where each thread message is).
-const folderIdCache = new Map<string, Promise<Map<string, Exclude<FolderKind, 'starred' | 'snoozed'>>>>()
+const folderIdCache = new Map<string, Promise<Map<string, PlainFolder>>>()
 function specialFolderIds(accountId: string) {
   let p = folderIdCache.get(accountId)
   if (!p) {
     p = (async () => {
-      const out = new Map<string, Exclude<FolderKind, 'starred' | 'snoozed'>>()
+      const out = new Map<string, PlainFolder>()
       await Promise.all(
-        (Object.entries(wellKnown) as [Exclude<FolderKind, 'starred' | 'snoozed'>, string][]).map(async ([kind, wk]) => {
+        (Object.entries(wellKnown) as [PlainFolder, string][]).map(async ([kind, wk]) => {
           try {
             const f = await graph<{ id: string }>(accountId, `/me/mailFolders/${wk}?$select=id`)
             out.set(f.id, kind)
@@ -265,6 +271,10 @@ export const outlook: MailProvider = {
       )
       return { messages: page.value.map((m) => toSummary(accountId, m)), hasMore: !!page['@odata.nextLink'] }
     }
+    if (target === 'scheduled') {
+      const page = await graph<GraphPage<GMessage>>(accountId, `/me/mailFolders/outbox/messages?$top=${top}&$select=${SUMMARY_FIELDS}&${DEFERRED_EXPAND}`)
+      return { messages: page.value.map((m) => toSummary(accountId, m)).sort((a, b) => b.date - a.date), hasMore: !!page['@odata.nextLink'] }
+    }
     if (typeof target === 'object' && 'search' in target) {
       // $search can't be combined with $orderby; Outlook returns the newest matches first.
       const kql = encodeURIComponent(`"${target.search.replace(/["\\]/g, ' ')}"`)
@@ -356,7 +366,7 @@ export const outlook: MailProvider = {
 
   async move(accountId, ids, dest) {
     if (typeof dest === 'object' && !('folderId' in dest)) throw new ApiError('Cannot move messages there', 400)
-    if (dest === 'snoozed') throw new ApiError('Cannot move messages there', 400)
+    if (dest === 'snoozed' || dest === 'scheduled') throw new ApiError('Cannot move messages there', 400)
     const destinationId = typeof dest === 'string' ? (dest === 'starred' ? 'inbox' : wellKnown[dest]) : dest.folderId
     await batch(accountId, ids.map((id) => ({ method: 'POST', url: `/me/messages/${id}/move`, body: { destinationId } })))
   },
@@ -401,7 +411,7 @@ export const outlook: MailProvider = {
 
   async unreadCount(accountId, folder) {
     if (folder === 'starred') return 0
-    if (folder === 'snoozed') return 0
+    if (folder === 'snoozed' || folder === 'scheduled') return 0
     const f = await graph<{ unreadItemCount?: number }>(accountId, `/me/mailFolders/${wellKnown[folder]}?$select=unreadItemCount`)
     return f.unreadItemCount ?? 0
   },
@@ -529,6 +539,28 @@ export const outlook: MailProvider = {
 
   async deleteDraft(accountId, draftId) {
     await graph(accountId, `/me/messages/${draftId}`, { method: 'DELETE' })
+  },
+
+  sendsScheduledItself: true,
+
+  async scheduleDraft(accountId, draftId, at) {
+    // A message already waiting in the Outbox goes back to Drafts first, to take the new time.
+    const m = await graph<{ id: string; isDraft?: boolean }>(accountId, `/me/messages/${draftId}?$select=id,isDraft`)
+    const id = m.isDraft === false ? await outlook.unschedule(accountId, draftId) : draftId
+    await graph(accountId, `/me/messages/${id}`, {
+      method: 'PATCH',
+      body: { singleValueExtendedProperties: [{ id: DEFERRED_PROP, value: new Date(at).toISOString() }] },
+    })
+    await graph(accountId, `/me/messages/${id}/send`, { method: 'POST' })
+  },
+
+  async unschedule(accountId, id) {
+    const moved = await graph<{ id: string }>(accountId, `/me/messages/${id}/move`, { method: 'POST', body: { destinationId: 'drafts' } })
+    return moved.id
+  },
+
+  async sendScheduled() {
+    // Exchange sends it at the time by itself.
   },
 
   async loadDraft(accountId, draftId) {

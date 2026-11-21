@@ -11,7 +11,8 @@ import { Dialog, Menu, Spinner } from '../ui/overlay'
 import { canDeleteForever, providerFor } from './api'
 import { AttachmentList } from './Attachments'
 import { openDraft, openNew, openReply } from './compose'
-import { mailActions, useAllFolders, useAllTags, useFolders, useMergedFolder, useThread, useUnreadCounts, type ThreadSummary } from './data'
+import i18n from '../i18n'
+import { mailActions, refreshAccountMail, useAllFolders, useAllTags, useFolders, useMergedFolder, useThread, useUnreadCounts, type ThreadSummary } from './data'
 import { TagChip, TagDialog, tagColor } from './Tags'
 import { MailTaskDialog } from '../tasks/MailTaskDialog'
 import { AddressMenu } from './AddressMenu'
@@ -26,6 +27,7 @@ const folderIcons: Record<FolderKind, IconName> = {
   snoozed: 'snooze',
   sent: 'send',
   drafts: 'drafts',
+  scheduled: 'schedule_send',
   archive: 'archive',
   trash: 'delete',
   spam: 'warning',
@@ -280,10 +282,24 @@ interface RowDialogs {
   onTags: (th: ThreadSummary) => void
   onTask: (th: ThreadSummary) => void
   onSnooze: (th: ThreadSummary) => void
+  onReschedule: (th: ThreadSummary) => void
 }
 
 /** Where conversations can be snoozed from (they go back to the Inbox later). */
-const canSnooze = (f: UiFolder) => !['sent', 'drafts', 'trash', 'spam'].includes(f)
+const canSnooze = (f: UiFolder) => !['sent', 'drafts', 'scheduled', 'trash', 'spam'].includes(f)
+
+/** Opens a scheduled message for editing (it becomes a draft again until sent or rescheduled). */
+async function editScheduled(th: ThreadSummary) {
+  const m = th.messages[th.messages.length - 1]
+  try {
+    const id = await providerFor(m.accountId).unschedule(m.accountId, m.id)
+    refreshAccountMail(m.accountId)
+    useStatus.getState().toast({ tone: 'info', message: i18n.t('mail.editScheduled') })
+    void openDraft(m.accountId, id)
+  } catch (e) {
+    useStatus.getState().toast({ tone: 'error', message: i18n.t('mail.actionFailed', { reason: (e as Error).message }) })
+  }
+}
 
 function ThreadRow({
   th,
@@ -306,11 +322,12 @@ function ThreadRow({
   const allTags = useAllTags()
   const rowTags = th.tags.filter((n) => view.kind !== 'tag' || n.toLowerCase() !== view.name.toLowerCase())
   const open = () => {
-    if (folder === 'drafts' && th.hasDraft && th.messages.length === 1) void openDraft(th.accountId, th.messages[0].id)
+    if (folder === 'scheduled') void editScheduled(th)
+    else if (folder === 'drafts' && th.hasDraft && th.messages.length === 1) void openDraft(th.accountId, th.messages[0].id)
     else goMail(view, { accountId: th.accountId, threadId: th.threadId })
   }
   const senders =
-    folder === 'sent' || folder === 'drafts'
+    folder === 'sent' || folder === 'drafts' || folder === 'scheduled'
       ? th.messages[th.messages.length - 1].to.map(displayName).join(', ')
       : th.participants.map(displayName).join(', ')
   return (
@@ -328,7 +345,7 @@ function ThreadRow({
           {account && <AccountBadge color={account.color} label={accountLabel(account)} size={18} />}
           <span className="thread-row__senders">{senders || t('mail.noRecipients')}</span>
           {th.messages.length > 1 && <span className="thread-row__count body-small muted">{th.messages.length}</span>}
-          {th.hasDraft && folder !== 'drafts' && <span className="draft-label body-small">{t('mail.draft')}</span>}
+          {th.hasDraft && folder !== 'drafts' && folder !== 'scheduled' && <span className="draft-label body-small">{t('mail.draft')}</span>}
         </span>
         <span className="thread-row__text">
           {rowTags.slice(0, 3).map((n) => (
@@ -340,7 +357,12 @@ function ThreadRow({
         </span>
         <span className="thread-row__meta">
           {th.hasAttachments && <Icon name="attach_file" size={18} label={t('mail.hasAttachments')} />}
-          {folder === 'snoozed' && th.snoozedUntil ? (
+          {folder === 'scheduled' && th.messages.some((m) => m.scheduledAt) ? (
+            <span className="thread-row__date body-small snooze-until">
+              <Icon name="schedule_send" size={16} />
+              {shortDateTime(Math.min(...th.messages.flatMap((m) => m.scheduledAt ?? [])))}
+            </span>
+          ) : folder === 'snoozed' && th.snoozedUntil ? (
             <span className="thread-row__date body-small snooze-until" title={t('snooze.until', { time: fullDate(th.snoozedUntil) })}>
               <Icon name="snooze" size={16} />
               {shortDateTime(th.snoozedUntil)}
@@ -354,6 +376,12 @@ function ThreadRow({
         {(folder === 'inbox' || folder === 'custom' || isMixed(folder)) && (
           <IconButton icon="archive" label={t('mail.archive')} onClick={() => void mailActions.archive(items, 1, isMixed(folder))} />
         )}
+        {folder === 'scheduled' && (
+          <>
+            <IconButton icon="schedule" label={t('mail.changeTime')} onClick={() => dialogs.onReschedule(th)} />
+            <IconButton icon="cancel_schedule_send" label={t('mail.unschedule')} onClick={() => void mailActions.unschedule(items, 1)} />
+          </>
+        )}
         {folder === 'snoozed' && <IconButton icon="alarm_off" label={t('mail.unsnooze')} onClick={() => void mailActions.unsnooze(items, 1)} />}
         {canSnooze(folder) && <IconButton icon="snooze" label={folder === 'snoozed' ? t('mail.resnooze') : t('mail.snooze')} onClick={() => dialogs.onSnooze(th)} />}
         {folder !== 'trash' ? (
@@ -366,9 +394,9 @@ function ThreadRow({
           label={th.unread ? t('mail.markRead') : t('mail.markUnread')}
           onClick={() => void mailActions.setRead(th.unread ? items : [items[items.length - 1]], th.unread)}
         />
-        {folder !== 'drafts' && <IconButton icon="drive_file_move" label={t('mail.moveTo')} onClick={() => dialogs.onMove(th)} />}
+        {folder !== 'drafts' && folder !== 'scheduled' && <IconButton icon="drive_file_move" label={t('mail.moveTo')} onClick={() => dialogs.onMove(th)} />}
         <IconButton icon="label" label={t('tags.action')} onClick={() => dialogs.onTags(th)} />
-        {th.messages.some((m) => !m.isDraft) && <IconButton icon="add_task" label={t('tasks.addFromMail')} onClick={() => dialogs.onTask(th)} />}
+        {folder !== 'scheduled' && th.messages.some((m) => !m.isDraft) && <IconButton icon="add_task" label={t('tasks.addFromMail')} onClick={() => dialogs.onTask(th)} />}
       </span>
     </li>
   )
@@ -467,7 +495,9 @@ function MailList({ view }: { view: MailView }) {
   const [rowMove, setRowMove] = useState<ThreadSummary | null>(null)
   const [taskFrom, setTaskFrom] = useState<MailSummary | null>(null)
   const [snoozing, setSnoozing] = useState<ThreadSummary[] | null>(null)
+  const [rescheduling, setRescheduling] = useState<ThreadSummary[] | null>(null)
   const dialogs: RowDialogs = {
+    onReschedule: (th) => setRescheduling([th]),
     onSnooze: (th) => setSnoozing([th]),
     onMove: setRowMove,
     onTags: (th) => setTagging(th.messages),
@@ -537,6 +567,12 @@ function MailList({ view }: { view: MailView }) {
             )}
             {folder === 'spam' && <IconButton icon="inbox" label={t('mail.notSpam')} onClick={() => void mailActions.moveToInbox(selItems, sel.length).then(clear)} />}
             {folder === 'snoozed' && <IconButton icon="alarm_off" label={t('mail.unsnooze')} onClick={() => void mailActions.unsnooze(selItems, sel.length).then(clear)} />}
+            {folder === 'scheduled' && (
+              <>
+                <IconButton icon="schedule" label={t('mail.changeTime')} onClick={() => setRescheduling(sel)} />
+                <IconButton icon="cancel_schedule_send" label={t('mail.unschedule')} onClick={() => void mailActions.unschedule(selItems, sel.length).then(clear)} />
+              </>
+            )}
             {canSnooze(folder) && <IconButton icon="snooze" label={folder === 'snoozed' ? t('mail.resnooze') : t('mail.snooze')} onClick={() => setSnoozing(sel)} />}
             <IconButton icon="mark_email_read" label={t('mail.markRead')} onClick={() => void mailActions.setRead(selItems, true).then(clear)} />
             <IconButton icon="mark_email_unread" label={t('mail.markUnread')} onClick={() => void mailActions.setRead(selItems, false).then(clear)} />
@@ -601,6 +637,16 @@ function MailList({ view }: { view: MailView }) {
         onPick={(dest, name) => {
           setMoving(false)
           void mailActions.moveTo(selItems, dest, name).then(clear)
+        }}
+      />
+      <SnoozeDialog
+        mode="send"
+        open={!!rescheduling}
+        onClose={() => setRescheduling(null)}
+        onPick={(at) => {
+          const ths = rescheduling ?? []
+          setRescheduling(null)
+          void mailActions.reschedule(itemsOf(ths), at).then(() => ths.length > 1 && clear())
         }}
       />
       <SnoozeDialog

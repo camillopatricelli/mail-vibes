@@ -1,3 +1,4 @@
+import { shortDateTime } from '../lib/format'
 import { create } from 'zustand'
 import i18n from '../i18n'
 import { useSettings } from '../settings/store'
@@ -295,7 +296,8 @@ export function validate(c: Composer): string | null {
   return null
 }
 
-export async function send(id: string) {
+/** Sends now, or at `at` (see snooze.ts). */
+export async function send(id: string, at?: number) {
   const c = get(id)
   if (!c || c.phase !== 'ready') return
   const problem = validate(c)
@@ -311,10 +313,11 @@ export async function send(id: string) {
       await saveInner(id)
       const cur = get(id)!
       const draft = await ensureDraftInner(id)
-      await providerFor(cur.accountId).sendDraft(cur.accountId, draft.id)
+      if (at) await providerFor(cur.accountId).scheduleDraft(cur.accountId, draft.id, at)
+      else await providerFor(cur.accountId).sendDraft(cur.accountId, draft.id)
     })
     // Only now — after the provider accepted the message — do we say it was sent.
-    useStatus.getState().toast({ tone: 'success', message: t('compose.sent') })
+    useStatus.getState().toast({ tone: 'success', message: at ? t('compose.scheduled', { time: shortDateTime(at) }) : t('compose.sent') })
     useCompose.getState().remove(id)
     refreshAccountMail(c.accountId)
   } catch (e) {

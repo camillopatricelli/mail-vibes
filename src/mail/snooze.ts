@@ -1,13 +1,24 @@
 /**
- * Snoozing. Neither Gmail nor Outlook lets other apps use their own snooze, so the app does it:
- * the conversation leaves the Inbox and waits in a "Snoozed" place in the mailbox (a Gmail label
- * per wake-up time, an Outlook folder with the time stored on the message), and the app brings it
- * back when the time comes. That only happens while the app is open somewhere; a message whose
- * time passed while it was closed comes back as soon as it is opened again.
+ * Snoozing and sending later.
+ *
+ * Neither Gmail nor Outlook lets other apps use its own snooze, so the app does it: the
+ * conversation leaves the Inbox and waits in the mailbox (Gmail: a label per wake-up time;
+ * Outlook: a "Snoozed" folder, with the time stored on the message), and the app brings it back
+ * when the time comes.
+ *
+ * Sending later: Outlook does it on the server (the message waits in the Outbox). Gmail doesn't
+ * let apps use its own scheduled send, so the message stays a draft with a label per send time,
+ * and the app sends it when the time comes.
+ *
+ * What the app does itself only happens while it is open somewhere; anything that came due while
+ * it was closed happens as soon as it is opened again.
  */
 
-/** Name of the Gmail label (parent of the per-time labels) and of the Outlook folder. */
-export const SNOOZE_NAME = 'Snoozed'
+/** Gmail labels of the app are kept under this one (hidden from the tags). */
+export const APP_LABEL = 'Mail Vibes'
+export type TimedLabel = 'Snoozed' | 'Send later'
+/** Name of the Outlook folder of snoozed mail. */
+export const SNOOZE_FOLDER = 'Snoozed'
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -25,19 +36,22 @@ export function parseSnoozeStamp(s: string): number | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d.getTime()
 }
 
-/** Gmail label names used for snoozing ("Snoozed" and "Snoozed/<stamp>"); hidden from the tags. */
-export const isSnoozeLabel = (name: string) => name === SNOOZE_NAME || name.startsWith(`${SNOOZE_NAME}/`)
+/** The app's own Gmail labels ("Mail Vibes" and everything under it). */
+export const isAppLabel = (name: string) => name === APP_LABEL || name.startsWith(`${APP_LABEL}/`)
 
-/** The wake-up time of a "Snoozed/<stamp>" label name. */
-export const snoozeLabelTime = (name: string) => (name.startsWith(`${SNOOZE_NAME}/`) ? parseSnoozeStamp(name.slice(SNOOZE_NAME.length + 1)) : undefined)
+/** e.g. "Mail Vibes/Snoozed/2026-11-23 09.00" */
+export const timedLabelName = (kind: TimedLabel, at: number) => `${APP_LABEL}/${kind}/${snoozeStamp(at)}`
 
-export const snoozeLabelName = (until: number) => `${SNOOZE_NAME}/${snoozeStamp(until)}`
+/** The time of a label made by timedLabelName for this kind, else undefined. */
+export function timedLabelTime(name: string, kind: TimedLabel) {
+  const prefix = `${APP_LABEL}/${kind}/`
+  return name.startsWith(prefix) ? parseSnoozeStamp(name.slice(prefix.length)) : undefined
+}
 
 export type SnoozePreset = 'laterToday' | 'tomorrow' | 'weekend' | 'nextWeek'
 
 function at(base: Date, days: number, hour: number) {
-  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + days, hour, 0, 0, 0)
-  return d.getTime()
+  return new Date(base.getFullYear(), base.getMonth(), base.getDate() + days, hour, 0, 0, 0).getTime()
 }
 
 /**
