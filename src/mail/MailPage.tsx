@@ -81,6 +81,8 @@ function NavSection({ title, open, onToggle, extra }: { title: string; open: boo
 function FolderNav({ view }: { view: MailView }) {
   const { t } = useTranslation()
   const inboxUnread = useUnreadCounts('inbox')
+  // Spam too, so wanted mail caught there isn't missed.
+  const spamUnread = useUnreadCounts('spam')
   // Gmail labels are shown as tags, so only Outlook accounts list folders here.
   const accountFolders = useAllFolders().filter((x) => x.account.provider !== 'google')
   const tags = useAllTags()
@@ -110,7 +112,9 @@ function FolderNav({ view }: { view: MailView }) {
               <a href={mailHref({ kind: 'well', folder: f })} className={['mail-nav__item', active && 'is-active'].filter(Boolean).join(' ')} aria-current={active ? 'page' : undefined}>
                 <Icon name={folderIcons[f]} filled={active} />
                 <span className="label-large">{t(`mail.folder.${f}`)}</span>
-                {f === 'inbox' && inboxUnread > 0 && <span className="label-medium mail-nav__count">{inboxUnread}</span>}
+                {(f === 'inbox' ? inboxUnread : f === 'spam' ? spamUnread : 0) > 0 && (
+                  <span className="label-medium mail-nav__count">{f === 'inbox' ? inboxUnread : spamUnread}</span>
+                )}
               </a>
             </li>
           )
