@@ -1,5 +1,6 @@
 import { localDate, toDateKey } from '../calendar/dates'
 import { google } from '../providers/google'
+import { findMailUrl, mailNoteLine, parseMailUrl } from './mailLink'
 import { COMPLETED_DAYS, type Task, type TaskDraft, type TaskList, type TaskProvider } from './types'
 
 /** Google Tasks via the Tasks REST API. */
@@ -19,9 +20,13 @@ interface GTask {
   webViewLink?: string
   deleted?: boolean
   hidden?: boolean
+  /** Read-only; set for tasks created from Gmail */
+  links?: { type?: string; description?: string; link?: string }[]
 }
 
 function toTask(accountId: string, listId: string, t: GTask): Task {
+  const email = t.links?.find((l) => l.type === 'email' && l.link)
+  const fromLink = email?.link ? parseMailUrl(email.link) : undefined
   return {
     accountId,
     listId,
@@ -37,6 +42,7 @@ function toTask(accountId: string, listId: string, t: GTask): Task {
     position: t.position ?? '',
     updatedAt: Date.parse(t.updated ?? '') || 0,
     webLink: t.webViewLink,
+    mail: email?.link ? { ...(fromLink ?? { provider: 'google', ids: [], url: email.link }), subject: email.description } : findMailUrl(t.notes),
   }
 }
 
@@ -85,8 +91,10 @@ export const googleTasks: TaskProvider = {
     return [...open, ...done.filter((t) => t.completed)]
   },
 
-  async create(accountId, listId, draft) {
-    const t = await google<GTask>(accountId, listUrl(listId), { method: 'POST', body: body({ title: draft.title, ...(draft.notes && { notes: draft.notes }), ...(draft.due !== null && { due: draft.due }) }) })
+  async create(accountId, listId, draft, mail) {
+    // Links cannot be written through the API, so the email's address goes into the notes.
+    const notes = mail ? [draft.notes.trim(), mailNoteLine(mail.subject, mail.url)].filter(Boolean).join('\n\n') : draft.notes
+    const t = await google<GTask>(accountId, listUrl(listId), { method: 'POST', body: body({ title: draft.title, ...(notes && { notes }), ...(draft.due !== null && { due: draft.due }) }) })
     return toTask(accountId, listId, t)
   },
 

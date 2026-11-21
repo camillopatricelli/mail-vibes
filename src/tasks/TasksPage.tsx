@@ -6,6 +6,8 @@ import { navigate, useLocation } from '../lib/router'
 import { useSettings } from '../settings/store'
 import { AccountBadge, Button, Icon, IconButton } from '../ui/components'
 import { Dialog, Spinner } from '../ui/overlay'
+import { notesWithoutMail } from './mailLink'
+import { openMailLink } from './mailOpen'
 import { defaultListKey, listKey, taskActions, toggleTaskList, useTaskLists, useTasks, type ShownTask } from './data'
 
 type Group = 'date' | 'list'
@@ -24,6 +26,7 @@ export function TaskRow({ task, onOpen, showList }: { task: ShownTask; onOpen: (
   const { t } = useTranslation()
   const account = useSettings((s) => s.accounts.find((a) => a.id === task.accountId))
   const overdue = !task.completed && task.due !== undefined && task.due < startOfDay(Date.now())
+  const notes = task.mail ? notesWithoutMail(task.notes) : task.notes
   return (
     <li className={['task-row', task.completed && 'is-completed', task.parentId && 'is-subtask'].filter(Boolean).join(' ')} style={{ borderLeftColor: task.accountColor }}>
       <button
@@ -38,7 +41,7 @@ export function TaskRow({ task, onOpen, showList }: { task: ShownTask; onOpen: (
       </button>
       <button type="button" className="task-row__body" onClick={() => onOpen(task)}>
         <span className="task-row__title body-large">{task.title || t('tasks.noTitle')}</span>
-        {task.notes && <span className="task-row__notes body-small muted">{task.notes}</span>}
+        {notes && <span className="task-row__notes body-small muted">{notes}</span>}
         {(task.due !== undefined || showList) && (
           <span className="task-row__meta">
             {task.due !== undefined && (
@@ -56,6 +59,14 @@ export function TaskRow({ task, onOpen, showList }: { task: ShownTask; onOpen: (
           </span>
         )}
       </button>
+      {task.mail && (
+        <IconButton
+          icon="mail"
+          className="task-row__mail"
+          label={task.mail.subject ? t('tasks.openMailNamed', { subject: task.mail.subject }) : t('tasks.openMail')}
+          onClick={() => task.mail && void openMailLink(task.mail, task.accountId)}
+        />
+      )}
       {task.important && <Icon name="star" filled size={18} className="task-row__star" label={t('tasks.important')} />}
     </li>
   )
@@ -99,6 +110,30 @@ function ListPanel() {
   )
 }
 
+/** Picker of the lists new tasks can go to, grouped by account. */
+export function ListSelect({ value, onChange, className = 'select' }: { value: string; onChange: (key: string) => void; className?: string }) {
+  const { t } = useTranslation()
+  const { lists } = useTaskLists()
+  const accounts = useSettings((s) => s.accounts)
+  return (
+    <select className={className} value={value} onChange={(e) => onChange(e.target.value)} aria-label={t('tasks.list')}>
+      {accounts.map((a) => {
+        const own = lists.filter((l) => l.accountId === a.id && !l.readOnly)
+        if (!own.length) return null
+        return (
+          <optgroup key={a.id} label={a.displayName ? `${a.displayName} (${a.email})` : a.email}>
+            {own.map((l) => (
+              <option key={l.id} value={listKey(l.accountId, l.id)}>
+                {l.name}
+              </option>
+            ))}
+          </optgroup>
+        )
+      })}
+    </select>
+  )
+}
+
 function QuickAdd() {
   const { t } = useTranslation()
   const { lists } = useTaskLists()
@@ -109,7 +144,6 @@ function QuickAdd() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const key = target || defaultListKey(lists, defaultAccount)
-  const accounts = useSettings((s) => s.accounts)
 
   const add = async () => {
     if (!title.trim() || !key || busy) return
@@ -127,7 +161,7 @@ function QuickAdd() {
     }
   }
 
-  if (!lists.length) return null
+  if (!lists.some((l) => !l.readOnly)) return null
   return (
     <div className="quick-add">
       <div className="quick-add__row">
@@ -142,21 +176,7 @@ function QuickAdd() {
           disabled={busy}
         />
         <input type="date" className="select quick-add__date" value={due} onChange={(e) => setDue(e.target.value)} aria-label={t('tasks.due')} />
-        <select className="select quick-add__list" value={key} onChange={(e) => setTarget(e.target.value)} aria-label={t('tasks.list')}>
-          {accounts.map((a) => {
-            const own = lists.filter((l) => l.accountId === a.id)
-            if (!own.length) return null
-            return (
-              <optgroup key={a.id} label={a.displayName ? `${a.displayName} (${a.email})` : a.email}>
-                {own.map((l) => (
-                  <option key={l.id} value={listKey(l.accountId, l.id)}>
-                    {l.name}
-                  </option>
-                ))}
-              </optgroup>
-            )
-          })}
-        </select>
+        <ListSelect className="select quick-add__list" value={key} onChange={setTarget} />
         <Button variant="tonal" onClick={() => void add()} disabled={!title.trim() || busy}>
           {t('tasks.add')}
         </Button>
@@ -245,6 +265,28 @@ export function TaskDialog({ task, onClose }: { task: ShownTask; onClose: () => 
             {account && <span className="body-small muted"> · {account.email}</span>}
           </span>
         </p>
+        {task.mail && (
+          <div className="event-form__row body-medium">
+            <Icon name="mail" />
+            <span className="event-form__grow">{task.mail.subject || t('tasks.linkedMail')}</span>
+            <Button
+              variant="tonal"
+              icon="mail"
+              onClick={() => {
+                if (!task.mail) return
+                onClose()
+                void openMailLink(task.mail, task.accountId)
+              }}
+            >
+              {t('tasks.openMail')}
+            </Button>
+            {task.mail.url && (
+              <a className="icon-btn icon-btn--standard" href={task.mail.url} target="_blank" rel="noopener noreferrer" aria-label={t('tasks.openOnWeb')} title={t('tasks.openOnWeb')}>
+                <Icon name="open_in_new" />
+              </a>
+            )}
+          </div>
+        )}
         {task.webLink && (
           <a className="btn btn--text" href={task.webLink} target="_blank" rel="noopener noreferrer">
             {t('tasks.openGoogle')}

@@ -1,5 +1,6 @@
 import { startOfDay, toDateKey } from '../calendar/dates'
 import { ApiError, graph, type GraphPage } from '../providers/graph'
+import { findMailUrl, linkOf, mailNoteLine, parseMailUrl, type MailLink } from './mailLink'
 import { COMPLETED_DAYS, type Task, type TaskDraft, type TaskList, type TaskProvider } from './types'
 
 /** Microsoft To Do via Microsoft Graph. */
@@ -18,10 +19,23 @@ interface GTask {
   importance?: string
   createdDateTime?: string
   lastModifiedDateTime?: string
+  linkedResources?: { webUrl?: string; applicationName?: string; displayName?: string; externalId?: string }[]
 }
 
 const utc = (dt: GDateTime | undefined) =>
   !dt ? undefined : Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(dt.dateTime) ? dt.dateTime : dt.dateTime + (dt.timeZone === 'UTC' ? 'Z' : ''))
+
+/** The email behind a flagged-email task or a task linked to a message. */
+function mailOf(t: GTask, notes: string): MailLink | undefined {
+  for (const r of t.linkedResources ?? []) {
+    const parsed = r.webUrl ? parseMailUrl(r.webUrl) : undefined
+    if (!parsed && !/outlook|mail/i.test(r.applicationName ?? '')) continue
+    const provider = parsed?.provider ?? 'microsoft'
+    const ids = [...new Set([...(provider === 'microsoft' && r.externalId ? [r.externalId] : []), ...(parsed?.ids ?? [])])]
+    return { provider, ids, url: r.webUrl, subject: r.displayName, email: parsed?.email }
+  }
+  return findMailUrl(notes)
+}
 
 function toTask(accountId: string, listId: string, t: GTask): Task {
   const due = utc(t.dueDateTime)
@@ -41,6 +55,7 @@ function toTask(accountId: string, listId: string, t: GTask): Task {
     important: t.importance === 'high',
     position: t.createdDateTime ?? '',
     updatedAt: Date.parse(t.lastModifiedDateTime ?? '') || 0,
+    mail: mailOf(t, notes),
   }
 }
 
@@ -73,14 +88,18 @@ async function all(accountId: string, listId: string, url: string, maxPages = 50
 
 /**
  * Tries each request in turn, moving on when Graph rejects the query options (400). Support for
- * $top, $select and $filter on To Do varies between tenants, so the last option is always a
+ * $expand and $filter on To Do varies between tenants, so the last option is always a
  * plain request, filtered here instead.
  */
-async function firstAccepted<T>(attempts: (() => Promise<T>)[]): Promise<T> {
+const accepted = new Map<string, number>()
+async function firstAccepted<T>(key: string, attempts: (() => Promise<T>)[]): Promise<T> {
   let first: unknown
-  for (const attempt of attempts) {
+  // Start from the option that worked last time, so rejected ones are not retried on every refresh.
+  for (let i = accepted.get(key) ?? 0; i < attempts.length; i++) {
     try {
-      return await attempt()
+      const r = await attempts[i]()
+      accepted.set(key, i)
+      return r
     } catch (e) {
       if (!(e instanceof ApiError && e.status === 400)) throw e
       first ??= e
@@ -99,30 +118,58 @@ export const todo: TaskProvider = {
       lists.push(...page.value)
       next = page['@odata.nextLink']
     }
-    return lists
-      .filter((l) => l.wellknownListName !== 'flaggedEmails')
-      .map((l): TaskList => ({ accountId, id: l.id, name: l.displayName || 'Tasks', isDefault: l.wellknownListName === 'defaultList' }))
+    return lists.map(
+      (l): TaskList => ({
+        accountId,
+        id: l.id,
+        name: l.displayName || 'Tasks',
+        isDefault: l.wellknownListName === 'defaultList',
+        // Filled by Outlook when an email is flagged; tasks cannot be added there.
+        readOnly: l.wellknownListName === 'flaggedEmails',
+      }),
+    )
   },
 
   async tasks(accountId, listId) {
     const base = tasksUrl(listId)
     const since = Date.now() - COMPLETED_DAYS * 86_400_000
     const recent = (t: Task) => !t.completed || (t.completedAt ?? t.updatedAt) >= since
-    const open = firstAccepted([
+    const x = '$expand=linkedResources'
+    const open = firstAccepted(`${accountId}|open`, [
+      () => all(accountId, listId, `${base}?$filter=status ne 'completed'&${x}`),
       () => all(accountId, listId, `${base}?$filter=status ne 'completed'`),
+      () => all(accountId, listId, `${base}?${x}`).then((ts) => ts.filter((t) => !t.completed)),
       () => all(accountId, listId, base).then((ts) => ts.filter((t) => !t.completed)),
     ])
     // Recently completed tasks only (lists can hold years of completed tasks).
-    const done = firstAccepted([
+    const done = firstAccepted(`${accountId}|done`, [
+      () => all(accountId, listId, `${base}?$filter=status eq 'completed'&${x}`, 5),
       () => all(accountId, listId, `${base}?$filter=status eq 'completed'`, 5),
+      () => all(accountId, listId, `${base}?${x}`, 20).then((ts) => ts.filter((t) => t.completed)),
       () => all(accountId, listId, base, 20).then((ts) => ts.filter((t) => t.completed)),
     ]).then((ts) => ts.filter(recent))
     return [...(await open), ...(await done)]
   },
 
-  async create(accountId, listId, draft) {
-    const t = await graph<GTask>(accountId, tasksUrl(listId), { method: 'POST', body: body({ title: draft.title, ...(draft.notes && { notes: draft.notes }), ...(draft.due !== null && { due: draft.due }) }) })
-    return toTask(accountId, listId, t)
+  async create(accountId, listId, draft, mail) {
+    const make = (notes: string, extra: Record<string, unknown> = {}) =>
+      graph<GTask>(accountId, tasksUrl(listId), {
+        method: 'POST',
+        body: { ...body({ title: draft.title, ...(notes && { notes }), ...(draft.due !== null && { due: draft.due }) }), ...extra },
+      })
+    if (!mail) return toTask(accountId, listId, await make(draft.notes))
+    let t: GTask
+    try {
+      t = await make(draft.notes, {
+        linkedResources: [{ webUrl: mail.url, applicationName: 'Mail Vibes', displayName: mail.subject || mail.url, externalId: mail.id }],
+      })
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 400)) throw e
+      // Linked resources refused: keep the link in the notes instead.
+      t = await make([draft.notes.trim(), mailNoteLine(mail.subject, mail.url)].filter(Boolean).join('\n\n'))
+    }
+    const task = toTask(accountId, listId, t)
+    return { ...task, mail: task.mail ?? linkOf(mail) }
   },
 
   async update(accountId, listId, taskId, draft) {

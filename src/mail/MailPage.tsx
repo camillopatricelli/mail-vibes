@@ -13,6 +13,7 @@ import { canDeleteForever, providerFor } from './api'
 import { AttachmentList } from './Attachments'
 import { openDraft, openNew, openReply } from './compose'
 import { mailActions, useAllFolders, useFolders, useMergedFolder, useThread, useUnreadCounts, type ThreadSummary } from './data'
+import { MailTaskDialog } from '../tasks/MailTaskDialog'
 import { MessageBody } from './MessageBody'
 import { goMail, mailHref, parseMailParams, sameView, uiFolder, viewTarget, type MailView, type UiFolder } from './routes'
 import { folderKinds, type FolderKind, type ListTarget, type MailMessage } from './types'
@@ -455,7 +456,7 @@ function MailList({ view }: { view: MailView }) {
 
 // ---------- Conversation ----------
 
-function MessageCard({ m, expanded, onToggle, account }: { m: MailMessage; expanded: boolean; onToggle: () => void; account?: AccountSettings }) {
+function MessageCard({ m, expanded, onToggle, account, onAddTask }: { m: MailMessage; expanded: boolean; onToggle: () => void; account?: AccountSettings; onAddTask: (m: MailMessage) => void }) {
   const { t } = useTranslation()
   const attachments = useQuery({
     queryKey: ['mail', 'attachments', m.accountId, m.id],
@@ -504,6 +505,7 @@ function MessageCard({ m, expanded, onToggle, account }: { m: MailMessage; expan
                 m.isRead
                   ? { label: t('mail.markUnread'), icon: 'mark_email_unread', onSelect: () => void mailActions.setRead([m], false) }
                   : { label: t('mail.markRead'), icon: 'mark_email_read', onSelect: () => void mailActions.setRead([m], true) },
+                { label: t('tasks.addFromMail'), icon: 'add_task', onSelect: () => onAddTask(m) },
               ]}
             />
           </>
@@ -531,6 +533,7 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
   const markReadPref = useSettings((s) => s.markRead)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [moving, setMoving] = useState(false)
+  const [taskFrom, setTaskFrom] = useState<MailMessage | null>(null)
   const folder: UiFolder = uiFolder(view)
   const back = () => goMail(view)
   // Messages that were unread when the conversation opened stay expanded after being marked read.
@@ -622,6 +625,7 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
           latest && <IconButton icon="mark_email_unread" label={t('mail.markUnread')} onClick={() => void mailActions.setRead([latest], false)} />
         )}
         {movable.length > 0 && <IconButton icon="drive_file_move" label={t('mail.moveTo')} onClick={() => setMoving(true)} />}
+        {latest && !latest.isDraft && <IconButton icon="add_task" label={t('tasks.addFromMail')} onClick={() => setTaskFrom(latest)} />}
         <span className="spacer" />
         {account && (
           <span className="thread__account body-small" style={{ borderColor: account.color }}>
@@ -637,6 +641,7 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
             key={m.id}
             m={m}
             account={account}
+            onAddTask={setTaskFrom}
             expanded={isExpanded(m)}
             onToggle={() =>
               setExpanded((s) => {
@@ -662,6 +667,7 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
           </Button>
         </div>
       )}
+      {taskFrom && <MailTaskDialog message={taskFrom} onClose={() => setTaskFrom(null)} />}
       <MoveDialog
         open={moving}
         onClose={() => setMoving(false)}

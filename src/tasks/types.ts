@@ -1,10 +1,14 @@
 /** Provider-neutral task model. Google Tasks and Microsoft To Do adapters map to these types. */
 
+import type { MailLink, MailSource } from './mailLink'
+
 export interface TaskList {
   accountId: string
   id: string
   name: string
   isDefault: boolean
+  /** Lists the API cannot add tasks to (To Do "Flagged email") */
+  readOnly?: boolean
 }
 
 export interface Task {
@@ -25,6 +29,8 @@ export interface Task {
   position: string
   updatedAt: number
   webLink?: string
+  /** The email the task was created from */
+  mail?: MailLink
 }
 
 export interface TaskDraft {
@@ -38,7 +44,7 @@ export interface TaskProvider {
   lists(accountId: string): Promise<TaskList[]>
   /** Open tasks plus recently completed ones */
   tasks(accountId: string, listId: string): Promise<Task[]>
-  create(accountId: string, listId: string, draft: TaskDraft): Promise<Task>
+  create(accountId: string, listId: string, draft: TaskDraft, mail?: MailSource): Promise<Task>
   update(accountId: string, listId: string, taskId: string, draft: Partial<TaskDraft>): Promise<void>
   setCompleted(accountId: string, listId: string, taskId: string, completed: boolean): Promise<void>
   remove(accountId: string, listId: string, taskId: string): Promise<void>

@@ -6,6 +6,7 @@ import { useSettings, type AccountSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 import { googleTasks } from './googleTasks'
 import { todo } from './todo'
+import type { MailSource } from './mailLink'
 import type { Task, TaskDraft, TaskList, TaskProvider } from './types'
 
 export function tasksFor(accountId: string): TaskProvider {
@@ -119,8 +120,8 @@ export const taskActions = {
   },
 
   /** Resolves once the provider confirmed; throws on failure (the caller shows the error). */
-  async create(accountId: string, listId: string, draft: TaskDraft) {
-    const created = await tasksFor(accountId).create(accountId, listId, draft)
+  async create(accountId: string, listId: string, draft: TaskDraft, mail?: MailSource) {
+    const created = await tasksFor(accountId).create(accountId, listId, draft, mail)
     patch(created, (list) => [created, ...list])
     void refresh(created)
     return created
@@ -148,7 +149,8 @@ export function toggleTaskList(accountId: string, listId: string) {
 }
 
 /** Where new tasks go: the default list of the default task account (or of the first account). */
-export function defaultListKey(lists: TaskList[], taskAccountId?: string) {
+export function defaultListKey(all: TaskList[], taskAccountId?: string) {
+  const lists = all.filter((x) => !x.readOnly)
   const l = lists.find((x) => x.accountId === taskAccountId && x.isDefault) ?? lists.find((x) => x.isDefault) ?? lists[0]
   return l ? listKey(l.accountId, l.id) : ''
 }
