@@ -1,0 +1,64 @@
+/* ---------- Tasks (reuses the calendar page layout) ---------- */
+.tasks__side-title { margin: 8px 8px 4px; color: var(--md-sys-color-on-surface-variant); }
+.tasks__main { overflow-y: auto; padding-bottom: 96px; }
+
+.quick-add { margin: 0 0 16px; max-width: 900px; }
+.quick-add__row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 8px 6px 14px;
+  border-radius: var(--md-sys-shape-lg);
+  background: var(--md-sys-color-surface-container);
+}
+.quick-add__row:focus-within { background: var(--md-sys-color-surface-container-high); }
+.quick-add__icon { color: var(--md-sys-color-primary); }
+.quick-add__input { flex: 1 1 220px; min-width: 0; height: 40px; border: 0; background: none; color: var(--md-sys-color-on-surface); font: inherit; }
+.quick-add__input:focus { outline: 0; }
+.quick-add__date, .quick-add__list { flex: 0 1 auto; max-width: 220px; }
+
+.task-sections { display: flex; flex-direction: column; gap: 20px; max-width: 900px; }
+.task-board { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.task-board .task-section { padding: 12px 8px 8px; border-radius: var(--md-sys-shape-lg); background: var(--md-sys-color-surface); border: 1px solid var(--md-sys-color-outline-variant); }
+.task-section__head { display: flex; align-items: center; gap: 8px; margin: 0 8px 8px; }
+.task-section.is-overdue .task-section__head > span:first-child { color: var(--md-sys-color-error); }
+.task-section__empty { margin: 4px 12px; }
+.task-section--completed { margin-top: 24px; max-width: 900px; }
+.task-section__toggle { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 4px; border: 0; border-radius: var(--md-sys-shape-full); background: none; cursor: pointer; color: var(--md-sys-color-on-surface-variant); }
+.task-section__toggle:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent); }
+
+.task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.task-row {
+  display: flex; align-items: flex-start; gap: 4px;
+  border-left: 4px solid transparent;
+  border-radius: var(--md-sys-shape-sm);
+  background: var(--md-sys-color-surface);
+}
+.task-row:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 5%, var(--md-sys-color-surface)); }
+.task-row.is-subtask { margin-left: 28px; }
+.task-row__check {
+  position: relative; flex: none; display: grid; place-items: center;
+  width: 40px; height: 40px; margin: 2px 0 0 2px; border: 0; border-radius: 50%;
+  background: none; cursor: pointer; color: var(--md-sys-color-on-surface-variant);
+}
+.task-row__check:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent); color: var(--md-sys-color-primary); }
+.task-row__check-hover { position: absolute; opacity: 0; }
+.task-row__check:hover .task-row__check-hover { opacity: 1; }
+.task-row.is-completed .task-row__check { color: var(--md-sys-color-primary); }
+.task-row__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 10px 8px 10px 4px; border: 0; background: none; cursor: pointer; text-align: left; color: inherit; font: inherit; }
+.task-row__title { overflow-wrap: anywhere; }
+.task-row.is-completed .task-row__title { text-decoration: line-through; color: var(--md-sys-color-on-surface-variant); }
+.task-row__notes { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-row__meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.task-row__list { display: inline-flex; align-items: center; gap: 6px; }
+.task-row__star { flex: none; margin: 12px 12px 0 0; color: #e8a600; }
+.task-chip {
+  display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px;
+  border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-sm);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.task-chip.is-overdue { color: var(--md-sys-color-error); border-color: color-mix(in srgb, var(--md-sys-color-error) 40%, transparent); }
+.task-list--compact .task-row__body { padding: 8px 8px 8px 2px; }
+
+@media (max-width: 839px) {
+  .quick-add__date, .quick-add__list { flex: 1 1 40%; max-width: none; }
+  .task-board { grid-template-columns: 1fr; }
+}

@@ -54,6 +54,8 @@ export interface Settings {
   tenantNames: Record<string, string>
   /** Calendars hidden from the merged calendar, as "accountId|calendarId" */
   hiddenCalendars: string[]
+  /** Task lists hidden from the merged task view, as "accountId|listId" */
+  hiddenTaskLists: string[]
   /** Timestamp the "notifications only while open" reminder was last dismissed */
   notifyReminderDismissedAt?: number
 }
@@ -89,6 +91,7 @@ export const defaultSettings: Settings = {
   customTenants: [],
   tenantNames: {},
   hiddenCalendars: [],
+  hiddenTaskLists: [],
 }
 
 interface SettingsActions {
@@ -130,6 +133,7 @@ export const useSettings = create<Settings & SettingsActions>()(
           accounts: get().accounts.filter((a) => a.id !== id),
           defaults,
           hiddenCalendars: get().hiddenCalendars.filter((k) => !k.startsWith(`${id}|`)),
+          hiddenTaskLists: get().hiddenTaskLists.filter((k) => !k.startsWith(`${id}|`)),
         })
       },
       addTenant: (t) =>
@@ -172,6 +176,7 @@ export function pickSettings(s: Settings): Settings {
     customTenants: s.customTenants,
     tenantNames: s.tenantNames,
     hiddenCalendars: s.hiddenCalendars ?? [],
+    hiddenTaskLists: s.hiddenTaskLists ?? [],
     notifyReminderDismissedAt: s.notifyReminderDismissedAt,
   }
 }
@@ -203,7 +208,7 @@ export function parseSettingsJson(text: string): Settings {
   const s = r.settings as Partial<Settings> | undefined
   if (!s || typeof s !== 'object') throw new Error('missing settings')
 
-  const out: Settings = { ...defaultSettings, accounts: [], defaults: {}, imagesAllowedFrom: [], customTenants: [], tenantNames: {}, hiddenCalendars: [] }
+  const out: Settings = { ...defaultSettings, accounts: [], defaults: {}, imagesAllowedFrom: [], customTenants: [], tenantNames: {}, hiddenCalendars: [], hiddenTaskLists: [] }
   if (s.language === 'auto' || s.language === 'en' || s.language === 'it') out.language = s.language
   if (s.theme === 'system' || s.theme === 'light' || s.theme === 'dark') out.theme = s.theme
   if (isHex(s.seedColor)) out.seedColor = s.seedColor
@@ -241,6 +246,7 @@ export function parseSettingsJson(text: string): Settings {
     }
   }
   if (Array.isArray(s.hiddenCalendars)) out.hiddenCalendars = s.hiddenCalendars.filter((k) => isStr(k) && ids.has(k.split('|')[0]))
+  if (Array.isArray(s.hiddenTaskLists)) out.hiddenTaskLists = s.hiddenTaskLists.filter((k) => isStr(k) && ids.has(k.split('|')[0]))
   if (Array.isArray(s.imagesAllowedFrom)) out.imagesAllowedFrom = s.imagesAllowedFrom.filter(isStr)
   if (Array.isArray(s.customTenants)) {
     out.customTenants = s.customTenants

@@ -27,7 +27,7 @@ export function TodayAgenda() {
         </p>
       ))}
       {shown.length === 0 ? (
-        <p className="body-medium muted">{t('calendar.nothingPlanned')}</p>
+        <p className="body-medium muted">{t('calendar.nothingToday')}</p>
       ) : (
         <ul className="today-list">
           {shown.map((e) => (

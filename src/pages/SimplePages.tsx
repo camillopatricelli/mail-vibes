@@ -1,9 +1,10 @@
 import { useTranslation } from 'react-i18next'
 import { href } from '../lib/router'
 import { useSettings } from '../settings/store'
-import { Card, EmptyState, Icon, type IconName } from '../ui/components'
+import { Card, Icon, type IconName } from '../ui/components'
 import { TodayMail } from '../mail/TodayMail'
 import { TodayAgenda } from '../calendar/TodayAgenda'
+import { TodayTasks } from '../tasks/TodayTasks'
 
 function NoAccountsHint() {
   const { t } = useTranslation()
@@ -34,22 +35,10 @@ export function TodayPage() {
               <Icon name={p.icon} />
               <h2 className="title-medium">{p.title}</h2>
             </header>
-            {i === 0 ? <TodayMail /> : i === 1 ? <TodayAgenda /> : <p className="body-medium muted">{t('placeholder.comingSoon')}</p>}
+            {i === 0 ? <TodayMail /> : i === 1 ? <TodayAgenda /> : <TodayTasks />}
           </Card>
         ))}
       </div>
-    </div>
-  )
-}
-
-export function PlaceholderPage({ section }: { section: 'calendar' | 'tasks' }) {
-  const { t } = useTranslation()
-  const icon: IconName = section === 'calendar' ? 'calendar_month' : 'task_alt'
-  return (
-    <div>
-      <h1 className="headline-small page-title">{t(`nav.${section}`)}</h1>
-      <NoAccountsHint />
-      <EmptyState icon={icon} title={t(`placeholder.${section}`)} body={t('placeholder.comingSoon')} />
     </div>
   )
 }

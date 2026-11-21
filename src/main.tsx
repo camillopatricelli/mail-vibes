@@ -5,6 +5,7 @@ import './theme/global.css'
 import './ui/ui.css'
 import './mail/mail.css'
 import './calendar/calendar.css'
+import './tasks/tasks.css'
 
 /**
  * The OAuth redirect URI is the app's root. When Microsoft sends the browser back here with an

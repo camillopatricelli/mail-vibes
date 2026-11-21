@@ -3,8 +3,9 @@ import './auth/accounts'
 import { applyLanguage, resolveLanguage } from './i18n'
 import { MailPage } from './mail/MailPage'
 import { CalendarPage } from './calendar/CalendarPage'
+import { TasksPage } from './tasks/TasksPage'
 import { navigate, useLocation } from './lib/router'
-import { PlaceholderPage, PrivacyPage, TodayPage } from './pages/SimplePages'
+import { PrivacyPage, TodayPage } from './pages/SimplePages'
 import { SettingsPage } from './pages/SettingsPage'
 import { SetupPage } from './pages/SetupPage'
 import { useSettings } from './settings/store'
@@ -55,7 +56,7 @@ export function App() {
       page = <CalendarPage />
       break
     case 'tasks':
-      page = <PlaceholderPage section="tasks" />
+      page = <TasksPage />
       break
     case 'settings':
       page = <SettingsPage />
