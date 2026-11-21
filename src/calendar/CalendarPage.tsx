@@ -275,7 +275,7 @@ function Agenda({ from, to, events, onOpen }: { from: number; to: number; events
     <div className="agenda">
       {groups.map(({ d, list }) => (
         <section key={d} className="agenda__day">
-          <h3 className={['title-small agenda__date', sameDay(d, Date.now()) && 'is-today'].filter(Boolean).join(' ')}>{dayLong(d)}</h3>
+          <h2 className={['title-small agenda__date', sameDay(d, Date.now()) && 'is-today'].filter(Boolean).join(' ')}>{dayLong(d)}</h2>
           <ul>
             {list.map((e) => (
               <li key={`${e.accountId}|${e.calendarId}|${e.id}`}>

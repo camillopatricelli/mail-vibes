@@ -148,14 +148,14 @@ export function RecurrenceField({
                     className={['day-toggle', on && 'is-on'].filter(Boolean).join(' ')}
                     aria-pressed={on}
                     title={weekdayName(d)}
-                    aria-label={weekdayName(d)}
                     disabled={disabled}
                     onClick={() => {
                       const next = on ? days.filter((x) => x !== d) : [...days, d]
                       if (next.length) set({ days: next })
                     }}
                   >
-                    {weekdayName(d, 'short').slice(0, 2)}
+                    <span aria-hidden>{weekdayName(d, 'short').slice(0, 2)}</span>
+                    <span className="visually-hidden">{weekdayName(d)}</span>
                   </button>
                 )
               })}

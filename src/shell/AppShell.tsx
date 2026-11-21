@@ -177,6 +177,24 @@ function AccountFilters() {
   )
 }
 
+/** For keyboard users: the first Tab stop jumps past the menus to the page (hidden until focused). */
+function SkipLink() {
+  const { t } = useTranslation()
+  return (
+    <a
+      className="skip-link"
+      href="#main"
+      onClick={(e) => {
+        // The app's routes live in the URL hash, so move focus instead of navigating.
+        e.preventDefault()
+        document.getElementById('main')?.focus()
+      }}
+    >
+      {t('nav.skipToContent')}
+    </a>
+  )
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { route } = useLocation()
   useNotifyReminder()
@@ -189,9 +207,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const showFilters = route !== 'settings' && route !== 'privacy' && route !== 'setup'
   return (
     <div className="shell">
+      <SkipLink />
       <TopBar />
       <NavRail active={route} />
-      <main className="content">
+      <main id="main" className="content" tabIndex={-1}>
         <Banners />
         {showFilters && <AccountFilters />}
         <div className="page">{children}</div>

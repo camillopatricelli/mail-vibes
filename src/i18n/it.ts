@@ -2,6 +2,7 @@ import type { Messages } from './en'
 
 const it: Messages = {
   nav: {
+    skipToContent: 'Vai al contenuto',
     today: 'Oggi',
     mail: 'Posta',
     calendar: 'Calendario',
@@ -157,6 +158,8 @@ const it: Messages = {
       'Ripristinare tutte le impostazioni su questo dispositivo? Gli account dovranno essere aggiunti di nuovo.',
   },
   privacy: {
+    sourceCode: 'Codice sorgente su GitHub',
+    licence: 'Licenza (MIT)',
     title: 'Privacy',
     p1: "Questa app funziona interamente nel tuo browser. Non c'è alcun server: posta, eventi, attività e contatti viaggiano solo tra il tuo browser e Google o Microsoft.",
     p2: "Nulla di ciò che leggi viene salvato sul dispositivo. I dati restano in memoria mentre l'app è aperta e scompaiono quando la chiudi.",

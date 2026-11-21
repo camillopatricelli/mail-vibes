@@ -1,5 +1,6 @@
 const en = {
   nav: {
+    skipToContent: 'Skip to content',
     today: 'Today',
     mail: 'Mail',
     calendar: 'Calendar',
@@ -154,6 +155,8 @@ const en = {
     resetConfirm: 'Reset all settings on this device? Accounts will need to be added again.',
   },
   privacy: {
+    sourceCode: 'Source code on GitHub',
+    licence: 'Licence (MIT)',
     title: 'Privacy',
     p1: 'This app runs entirely in your browser. There is no server behind it: your mail, events, tasks and contacts travel only between your browser and Google or Microsoft.',
     p2: 'Nothing you read is stored on your device. Data is kept in memory while the app is open and disappears when you close it.',

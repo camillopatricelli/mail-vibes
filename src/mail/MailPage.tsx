@@ -519,6 +519,7 @@ function MailList({ view }: { view: MailView }) {
 
   return (
     <div className="mail-list">
+      {view.kind === 'well' && <h1 className="visually-hidden">{t(`mail.folder.${view.folder}`)}</h1>}
       {view.kind === 'custom' && <CustomFolderTitle view={view} />}
       {view.kind === 'tag' && <TagTitle name={view.name} />}
       {view.kind === 'search' && (

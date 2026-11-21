@@ -168,8 +168,9 @@ function Editor({ c }: { c: Composer }) {
           tool.icon ? (
             <IconButton key={tool.label} icon={tool.icon} label={tool.label} onMouseDown={(e) => e.preventDefault()} onClick={tool.run} />
           ) : (
-            <button key={tool.label} type="button" className="icon-btn format-btn" title={tool.label} aria-label={tool.label} onMouseDown={(e) => e.preventDefault()} onClick={tool.run}>
-              {tool.text}
+            <button key={tool.label} type="button" className="icon-btn format-btn" title={tool.label} onMouseDown={(e) => e.preventDefault()} onClick={tool.run}>
+              <span aria-hidden>{tool.text}</span>
+              <span className="visually-hidden">{tool.label}</span>
             </button>
           ),
         )}

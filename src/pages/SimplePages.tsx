@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { appInfo } from '../config'
 import { href } from '../lib/router'
 import { useSettings } from '../settings/store'
 import { Card, Icon, type IconName } from '../ui/components'
@@ -55,6 +56,15 @@ export function PrivacyPage() {
       ))}
       <h2 className="title-medium">{t('privacy.disclaimerTitle')}</h2>
       <p className="body-large">{t('privacy.disclaimer')}</p>
+      <p className="body-large">
+        <a href={appInfo.repoUrl} target="_blank" rel="noopener noreferrer">
+          {t('privacy.sourceCode')}
+        </a>
+        {' · '}
+        <a href={`${appInfo.repoUrl}/blob/main/LICENSE`} target="_blank" rel="noopener noreferrer">
+          {t('privacy.licence')}
+        </a>
+      </p>
     </article>
   )
 }

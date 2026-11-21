@@ -88,3 +88,7 @@ a {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+.skip-link { position: fixed; left: 8px; top: -60px; z-index: 1000; padding: 10px 16px; border-radius: var(--md-sys-shape-sm); background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); font-weight: 500; text-decoration: none; }
+.skip-link:focus { top: 8px; outline: 2px solid var(--md-sys-color-on-primary); outline-offset: -4px; }
+main:focus { outline: none; }

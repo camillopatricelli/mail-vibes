@@ -25,9 +25,14 @@ export function Dialog({
   const { t } = useTranslation()
   useEffect(() => {
     const d = ref.current
-    if (!d) return
-    if (open && !d.open) d.showModal()
-    if (!open && d.open) d.close()
+    if (!open || !d) return
+    // The dialog leaves the page without close(), so the browser can't return focus itself: do it here.
+    const before = document.activeElement as HTMLElement | null
+    if (!d.open) d.showModal()
+    return () => {
+      if (d.open) d.close()
+      if (before?.isConnected) before.focus()
+    }
   }, [open])
   if (!open) return null
   return createPortal(
@@ -96,7 +101,11 @@ export function Menu({
     const onDown = (e: MouseEvent) => {
       if (!menu.current?.contains(e.target as Node) && !anchor.current?.contains(e.target as Node)) setOpen(false)
     }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setOpen(false)
+      anchor.current?.querySelector<HTMLElement>('button')?.focus()
+    }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
     menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
