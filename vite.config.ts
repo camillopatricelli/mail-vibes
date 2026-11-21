@@ -10,12 +10,13 @@ import react from '@vitejs/plugin-react'
 const CSP = [
   "default-src 'self'",
   // 'wasm-unsafe-eval' lets pdf.js run its bundled WebAssembly image decoders (no JS eval).
-  "script-src 'self' 'wasm-unsafe-eval' https://accounts.google.com/gsi/client",
+  // Google Maps (place suggestions) loads only when the user has set their own Maps key.
+  "script-src 'self' 'wasm-unsafe-eval' https://accounts.google.com/gsi/client https://maps.googleapis.com https://maps.gstatic.com",
   // Email HTML relies heavily on inline <style>; the email frame is sandboxed without scripts.
   "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  "connect-src 'self' https://login.microsoftonline.com https://graph.microsoft.com https://*.googleapis.com https://accounts.google.com",
+  "connect-src 'self' https://login.microsoftonline.com https://graph.microsoft.com https://*.googleapis.com https://maps.gstatic.com https://accounts.google.com",
   "frame-src 'self' blob: https://accounts.google.com https://login.microsoftonline.com",
   "worker-src 'self' blob:",
   "object-src 'none'",
