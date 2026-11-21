@@ -341,6 +341,9 @@ const en = {
     none: 'No tags yet. Type a name to create one.',
     remove: 'Remove tag {{tag}}',
     gmailHint: 'In Gmail, tags are labels; in Outlook, categories. Use “/” for nested Gmail labels.',
+    outlookConsentHint: 'Outlook category colours, and new tags as proper Outlook categories, need permission to read your mailbox settings.',
+    outlookConsent: 'Allow',
+    consentFailed: 'Could not get the permission: {{reason}}',
   },
   tasks: {
     lists: 'Lists',

@@ -50,6 +50,19 @@ Add it as above and grant admin consent again. Mail Vibes asks for it only the f
 someone uses this feature ("Allow" in the event editor); nothing else changes for users who
 don't use it.
 
+### Optional: Outlook category colours
+
+Tags on Outlook messages are Outlook categories and work with the standard permissions. To show
+the categories with their Outlook colours, and to create new tags as proper Outlook categories
+(with a colour, in the category list), Mail Vibes needs to read and update the mailbox settings:
+
+| Permission | Used for |
+| --- | --- |
+| `MailboxSettings.ReadWrite` | Reading the category list and adding new categories |
+
+With admin consent it is used automatically. Without it, tags still work, without colours, and
+the tag dialog offers an "Allow" button.
+
 ## 3. Optional settings
 
 - **Enterprise applications** → *Mail Vibes* → **Properties** → **Assignment required?** set to

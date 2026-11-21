@@ -197,6 +197,30 @@ export async function forgetMicrosoftAccount(accountId: string) {
  * must allow it (admin consent for OnlineMeetings.ReadWrite).
  */
 export const ONLINE_MEETING_SCOPES = ['OnlineMeetings.ReadWrite']
+/** Outlook's category list (names and colours) lives in the mailbox settings. */
+export const MAILBOX_SCOPES = ['MailboxSettings.ReadWrite']
+
+/** Whether a token for these optional scopes can be had without asking the user. */
+export async function hasConsent(accountId: string, scopes: string[]) {
+  try {
+    await getGraphToken(accountId, false, scopes)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Asks the user (or shows the admin-approval message) for optional scopes. Must run inside a click. */
+export async function consentScopes(accountId: string, scopes: string[]): Promise<boolean> {
+  const { pca, account } = await findMsalAccount(accountId)
+  try {
+    await pca.acquireTokenPopup({ scopes, loginHint: account.username })
+    return true
+  } catch (e) {
+    if (isUserCancel(e)) return false
+    throw e
+  }
+}
 
 export async function hasOnlineMeetingConsent(accountId: string) {
   try {

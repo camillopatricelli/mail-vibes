@@ -344,6 +344,9 @@ const it: Messages = {
     none: 'Nessuna etichetta. Scrivi un nome per crearne una.',
     remove: 'Rimuovi etichetta {{tag}}',
     gmailHint: 'In Gmail le etichette sono label; in Outlook, categorie. Usa “/” per le label annidate di Gmail.',
+    outlookConsentHint: 'I colori delle categorie di Outlook, e le nuove etichette come vere categorie di Outlook, richiedono il permesso di leggere le impostazioni della casella di posta.',
+    outlookConsent: 'Consenti',
+    consentFailed: 'Impossibile ottenere il permesso: {{reason}}',
   },
   tasks: {
     lists: 'Elenchi',

@@ -1,4 +1,6 @@
 import { graph, ApiError, type GraphPage } from '../providers/graph'
+import { AuthRequiredError } from '../auth/errors'
+import { MAILBOX_SCOPES } from '../auth/msal'
 import type {
   Address,
   Attachment,
@@ -195,6 +197,33 @@ const presetColor = (c?: string) => {
 }
 const quote = (s: string) => s.replace(/'/g, "''")
 
+type MasterCategory = { displayName: string; color?: string }
+/** Per account: whether the category list could be read ('needsConsent': permission not granted yet). */
+const categoryAccess = new Map<string, 'ok' | 'needsConsent'>()
+export const outlookNeedsCategoryConsent = (accountId: string) => categoryAccess.get(accountId) === 'needsConsent'
+
+/** The account's category list, or undefined without the mailbox-settings permission. */
+async function masterCategories(accountId: string): Promise<MasterCategory[] | undefined> {
+  try {
+    const r = await graph<GraphPage<MasterCategory>>(accountId, '/me/outlook/masterCategories', { quiet: true, scopes: MAILBOX_SCOPES })
+    categoryAccess.set(accountId, 'ok')
+    return r.value
+  } catch (e) {
+    if (e instanceof AuthRequiredError || (e instanceof ApiError && e.status === 403)) {
+      categoryAccess.set(accountId, 'needsConsent')
+      return undefined
+    }
+    throw e
+  }
+}
+
+/** A colour for a new category, chosen from the name so it is stable. */
+function presetFor(name: string) {
+  let h = 0
+  for (const ch of name.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) | 0
+  return `preset${Math.abs(h) % 10}`
+}
+
 function toAttachment(a: GAttachment): Attachment {
   return {
     id: a.id,
@@ -265,18 +294,29 @@ export const outlook: MailProvider = {
   },
 
   async tags(accountId) {
-    // The category list needs MailboxSettings permission, which may not be granted: fall back to
-    // the categories used on recent messages.
-    try {
-      const r = await graph<GraphPage<{ displayName: string; color?: string }>>(accountId, '/me/outlook/masterCategories', { quiet: true })
-      return r.value.map((c): MailTag => ({ name: c.displayName, color: presetColor(c.color) }))
-    } catch {
-      const r = await graph<GraphPage<{ categories?: string[] }>>(accountId, '/me/messages?$top=250&$select=categories', { quiet: true })
-      return [...new Set(r.value.flatMap((m) => m.categories ?? []))].map((name): MailTag => ({ name }))
-    }
+    // The category list needs the mailbox-settings permission, which may not be granted: then the
+    // categories used on recent messages stand in for it (without colours).
+    const master = await masterCategories(accountId)
+    if (master) return master.map((c): MailTag => ({ name: c.displayName, color: presetColor(c.color) }))
+    const r = await graph<GraphPage<{ categories?: string[] }>>(accountId, '/me/messages?$top=250&$select=categories', { quiet: true })
+    return [...new Set(r.value.flatMap((m) => m.categories ?? []))].map((name): MailTag => ({ name }))
   },
 
   async setTags(accountId, messages, add, remove) {
+    // New tags become proper Outlook categories (with a colour) when the list can be edited;
+    // otherwise Outlook shows them as categories that are "not in the master list".
+    if (add.length) {
+      const master = await masterCategories(accountId).catch(() => undefined)
+      const known = new Set(master?.map((c) => c.displayName.toLowerCase()))
+      if (master)
+        for (const name of add.filter((n) => !known.has(n.toLowerCase())))
+          await graph(accountId, '/me/outlook/masterCategories', {
+            method: 'POST',
+            body: { displayName: name, color: presetFor(name) },
+            quiet: true,
+            scopes: MAILBOX_SCOPES,
+          }).catch(() => undefined)
+    }
     const drop = new Set(remove.map((n) => n.toLowerCase()))
     const requests = messages.map((m) => {
       const kept = m.tags.filter((n) => !drop.has(n.toLowerCase()))

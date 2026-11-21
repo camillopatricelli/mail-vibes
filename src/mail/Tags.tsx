@@ -1,4 +1,8 @@
 import { useMemo, useState } from 'react'
+import { consentScopes, MAILBOX_SCOPES } from '../auth/msal'
+import { queryClient } from '../lib/queryClient'
+import { useStatus } from '../status/store'
+import { outlookNeedsCategoryConsent } from './outlook'
 import { useTranslation } from 'react-i18next'
 import { Button, Icon } from '../ui/components'
 import { Dialog } from '../ui/overlay'
@@ -27,6 +31,33 @@ export function TagChip({ name, tags, onRemove }: { name: string; tags: MergedTa
         </button>
       )}
     </span>
+  )
+}
+
+/** Offers the mailbox-settings permission for Outlook accounts that can't read their category list. */
+function CategoryConsent({ accountIds }: { accountIds: string[] }) {
+  const { t } = useTranslation()
+  const [busy, setBusy] = useState(false)
+  const pending = accountIds.filter(outlookNeedsCategoryConsent)
+  if (!pending.length) return null
+  const ask = async () => {
+    setBusy(true)
+    try {
+      for (const id of pending) await consentScopes(id, MAILBOX_SCOPES)
+      await queryClient.invalidateQueries({ queryKey: ['mail', 'tags'] })
+    } catch (e) {
+      useStatus.getState().toast({ tone: 'error', message: t('tags.consentFailed', { reason: (e as Error).message }) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <p className="body-small muted tag-dialog__consent">
+      {t('tags.outlookConsentHint')}{' '}
+      <Button variant="text" onClick={() => void ask()} disabled={busy}>
+        {t('tags.outlookConsent')}
+      </Button>
+    </p>
   )
 }
 
@@ -130,6 +161,7 @@ export function TagDialog({ messages, onClose }: { messages: MailSummary[]; onCl
           {!shown.length && !canCreate && <li className="body-medium muted tag-dialog__empty">{t('tags.none')}</li>}
         </ul>
         {messages.some((m) => m.accountId.startsWith('google:')) && <p className="body-small muted">{t('tags.gmailHint')}</p>}
+        <CategoryConsent accountIds={[...new Set(messages.map((m) => m.accountId))]} />
       </div>
     </Dialog>
   )

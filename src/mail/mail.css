@@ -306,3 +306,4 @@
 .tag-dialog__dot { width: 12px; height: 12px; border-radius: 3px; flex: none; }
 .tag-dialog__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tag-dialog__empty { padding: 8px 4px; }
+.tag-dialog__consent { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin: 0; }
