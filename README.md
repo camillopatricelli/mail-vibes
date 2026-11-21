@@ -27,6 +27,11 @@ users in one of three ways:
 These contain only public identifiers (no secrets). Self-hosters can also build organisations in
 with the `VITE_MS_TENANTS` environment variable. See [.env.example](.env.example).
 
+## Google accounts
+
+See [docs/google-setup.md](docs/google-setup.md) for creating the Google Cloud project and OAuth
+client, and the trade-offs of "Testing" vs "In production".
+
 ## Development
 
 ```sh
