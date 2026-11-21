@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { fromDateKey } from '../calendar/dates'
-import type { MailMessage } from '../mail/types'
+import type { MailSummary } from '../mail/types'
 import { useSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 import { Button, Icon, IconButton } from '../ui/components'
@@ -11,7 +11,7 @@ import { mailSource } from './mailOpen'
 import { ListSelect } from './TasksPage'
 
 /** "Add to Tasks" from an email: the task keeps a link back to the message. */
-export function MailTaskDialog({ message, onClose }: { message: MailMessage; onClose: () => void }) {
+export function MailTaskDialog({ message, onClose }: { message: MailSummary; onClose: () => void }) {
   const { t } = useTranslation()
   const { lists, isLoading } = useTaskLists()
   const defaultAccount = useSettings((s) => s.defaults.taskAccountId)

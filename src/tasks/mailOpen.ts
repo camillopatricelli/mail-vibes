@@ -1,6 +1,6 @@
 import i18n from '../i18n'
 import { goMail } from '../mail/routes'
-import type { MailMessage } from '../mail/types'
+import type { MailSummary } from '../mail/types'
 import { graph, ApiError } from '../providers/graph'
 import { google } from '../providers/google'
 import { useSettings } from '../settings/store'
@@ -63,7 +63,7 @@ export async function openMailLink(link: MailLink, taskAccountId: string) {
 }
 
 /** What a new task needs to link back to this email (Outlook's web address takes a request). */
-export async function mailSource(m: MailMessage): Promise<MailSource> {
+export async function mailSource(m: MailSummary): Promise<MailSource> {
   const account = useSettings.getState().accounts.find((a) => a.id === m.accountId)
   if (m.accountId.startsWith('google:'))
     return {

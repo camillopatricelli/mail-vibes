@@ -222,18 +222,27 @@ function SyncStatus({ accounts }: { accounts: AccountSettings[] }) {
 
 // ---------- List ----------
 
+/** Dialogs a list row can open (they live in the list, not in each row). */
+interface RowDialogs {
+  onMove: (th: ThreadSummary) => void
+  onTags: (th: ThreadSummary) => void
+  onTask: (th: ThreadSummary) => void
+}
+
 function ThreadRow({
   th,
   view,
   account,
   selected,
   onSelect,
+  dialogs,
 }: {
   th: ThreadSummary
   view: MailView
   account?: AccountSettings
   selected: boolean
   onSelect: (v: boolean) => void
+  dialogs: RowDialogs
 }) {
   const { t } = useTranslation()
   const folder = uiFolder(view)
@@ -292,6 +301,9 @@ function ThreadRow({
           label={th.unread ? t('mail.markRead') : t('mail.markUnread')}
           onClick={() => void mailActions.setRead(th.unread ? items : [items[items.length - 1]], th.unread)}
         />
+        {folder !== 'drafts' && <IconButton icon="drive_file_move" label={t('mail.moveTo')} onClick={() => dialogs.onMove(th)} />}
+        <IconButton icon="label" label={t('tags.action')} onClick={() => dialogs.onTags(th)} />
+        {th.messages.some((m) => !m.isDraft) && <IconButton icon="add_task" label={t('tasks.addFromMail')} onClick={() => dialogs.onTask(th)} />}
       </span>
     </li>
   )
@@ -387,6 +399,13 @@ function MailList({ view }: { view: MailView }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [moving, setMoving] = useState(false)
   const [tagging, setTagging] = useState<MailSummary[] | null>(null)
+  const [rowMove, setRowMove] = useState<ThreadSummary | null>(null)
+  const [taskFrom, setTaskFrom] = useState<MailSummary | null>(null)
+  const dialogs: RowDialogs = {
+    onMove: setRowMove,
+    onTags: (th) => setTagging(th.messages),
+    onTask: (th) => setTaskFrom([...th.messages].reverse().find((m) => !m.isDraft) ?? null),
+  }
   const viewKey = mailHref(view)
   useEffect(() => setSelected(new Set()), [viewKey])
 
@@ -486,6 +505,7 @@ function MailList({ view }: { view: MailView }) {
               view={view}
               account={accountMap.get(th.accountId)}
               selected={selected.has(th.key)}
+              dialogs={dialogs}
               onSelect={(v) =>
                 setSelected((s) => {
                   const n = new Set(s)
@@ -514,6 +534,17 @@ function MailList({ view }: { view: MailView }) {
           void mailActions.moveTo(selItems, dest, name).then(clear)
         }}
       />
+      <MoveDialog
+        open={!!rowMove}
+        onClose={() => setRowMove(null)}
+        accountIds={rowMove ? [rowMove.accountId] : []}
+        onPick={(dest, name) => {
+          const th = rowMove
+          setRowMove(null)
+          if (th) void mailActions.moveTo(itemsOf([th]), dest, name)
+        }}
+      />
+      {taskFrom && <MailTaskDialog message={taskFrom} onClose={() => setTaskFrom(null)} />}
       {tagging && (
         <TagDialog
           messages={tagging}
