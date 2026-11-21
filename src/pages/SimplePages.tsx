@@ -49,11 +49,19 @@ export function PrivacyPage() {
   return (
     <article className="prose">
       <h1 className="headline-small page-title">{t('privacy.title')}</h1>
-      {(['p1', 'p2', 'p3', 'p6', 'p7', 'p4', 'p5'] as const).map((k) => (
+      {(['p1', 'p2', 'p3', 'p6', 'p7', 'p4'] as const).map((k) => (
         <p key={k} className="body-large">
           {t(`privacy.${k}`)}
         </p>
       ))}
+      <h2 className="title-medium">{t('privacy.permTitle')}</h2>
+      <p className="body-large">{t('privacy.permIntro')}</p>
+      <ul className="body-large">
+        {(['permIdentity', 'permMail', 'permCalendar', 'permTasks', 'permContacts', 'permMeet', 'permOptional'] as const).map((k) => (
+          <li key={k}>{t(`privacy.${k}`)}</li>
+        ))}
+      </ul>
+      <p className="body-large">{t('privacy.p5')}</p>
       <h2 className="title-medium">{t('privacy.disclaimerTitle')}</h2>
       <p className="body-large">{t('privacy.disclaimer')}</p>
       <p className="body-large">

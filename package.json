@@ -1,7 +1,7 @@
 {
   "name": "mail-vibes",
   "version": "0.1.0",
-  "description": "",
+  "description": "Browser-only client for Google and Microsoft 365 mail, calendar, tasks and contacts",
   "scripts": {
     "test": "vitest run",
     "dev": "vite",
@@ -14,7 +14,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "private": "true",
   "dependencies": {
