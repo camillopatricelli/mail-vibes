@@ -160,6 +160,8 @@ const en = {
     p3: 'The only things saved on this device are your preferences (such as account colours and default accounts), the sign-in tokens that the Google and Microsoft sign-in libraries need, and the app\u2019s own files (so it can be installed and start quickly). Your mail, events, tasks and contacts are never cached.',
     p4: 'There is no analytics, tracking or advertising. Remote images in emails are blocked until you choose to show them.',
     p5: 'You can revoke access at any time from your Google Account (Security → Third-party connections) or your Microsoft account.',
+    disclaimerTitle: 'No warranty, no responsibility for your data',
+    disclaimer: 'Mail Vibes is a personal, free, open-source project provided as is, without warranty of any kind (see the MIT licence). It has no server: your mail, events, tasks and contacts go directly between your browser and Google or Microsoft, and are never sent to or seen by the author. You use it at your own risk and are responsible for your accounts, your data and your organisation’s policies. If your organisation uses it, its administrators decide whether to allow it.',
   },
   mail: {
     gmailNoDeleteForever: 'Gmail messages cannot be deleted permanently from Mail Vibes (that would need full access to your mailbox). Gmail empties Trash and Spam automatically after 30 days.',

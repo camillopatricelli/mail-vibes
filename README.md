@@ -3,7 +3,16 @@
 A browser-only, open-source client that brings several Google accounts and Microsoft 365 tenants
 together in one place — Mail, Calendar and Tasks — with a Material 3 look.
 
-> **Status:** early development (phase 0: app shell). Not usable yet.
+> **Status:** early development. Mail, calendar and tasks work for Google and Microsoft 365
+> accounts; a full guide and final polish are still to come.
+
+## No warranty, no responsibility for your data
+
+Mail Vibes is a personal, free, open-source project provided as is, without warranty of any kind
+(see [LICENSE](LICENSE)). It has no server: your mail, events, tasks and contacts go directly
+between your browser and Google or Microsoft, and are never sent to or seen by the author. You use
+it at your own risk and are responsible for your accounts, your data and your organisation's
+policies. If your organisation uses it, its administrators decide whether to allow it.
 
 ## Design in one paragraph
 

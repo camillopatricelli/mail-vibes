@@ -163,6 +163,8 @@ const it: Messages = {
     p3: 'Su questo dispositivo vengono salvate solo le tue preferenze (come i colori degli account e gli account predefiniti), i token di accesso che servono alle librerie di accesso di Google e Microsoft, e i file dell\u2019app stessa (per poterla installare e avviare rapidamente). Email, eventi, attività e contatti non vengono mai salvati.',
     p4: 'Nessuna analisi, tracciamento o pubblicità. Le immagini remote nelle email sono bloccate finché non scegli di mostrarle.',
     p5: "Puoi revocare l'accesso in qualsiasi momento dal tuo Account Google (Sicurezza → Connessioni di terze parti) o dal tuo account Microsoft.",
+    disclaimerTitle: 'Nessuna garanzia, nessuna responsabilità sui tuoi dati',
+    disclaimer: 'Mail Vibes è un progetto personale, gratuito e open source, fornito così com’è, senza garanzie di alcun tipo (vedi la licenza MIT). Non ha un server: posta, eventi, attività e contatti viaggiano direttamente tra il tuo browser e Google o Microsoft, e l’autore non li riceve né li vede mai. Lo usi a tuo rischio e sei responsabile dei tuoi account, dei tuoi dati e delle regole della tua organizzazione. Se la tua organizzazione lo usa, spetta ai suoi amministratori decidere se consentirlo.',
   },
   mail: {
     gmailNoDeleteForever: "I messaggi Gmail non possono essere eliminati definitivamente da Mail Vibes (servirebbe l'accesso completo alla casella). Gmail svuota automaticamente Cestino e Spam dopo 30 giorni.",

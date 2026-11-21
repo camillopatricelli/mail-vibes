@@ -53,6 +53,8 @@ export function PrivacyPage() {
           {t(`privacy.${k}`)}
         </p>
       ))}
+      <h2 className="title-medium">{t('privacy.disclaimerTitle')}</h2>
+      <p className="body-large">{t('privacy.disclaimer')}</p>
     </article>
   )
 }
