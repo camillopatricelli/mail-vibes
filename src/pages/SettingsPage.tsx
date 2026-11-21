@@ -365,6 +365,7 @@ export function SettingsPage() {
       <Section title={t('settings.defaults')}>
         <DefaultSelect label={t('settings.defaultSend')} field="sendAccountId" />
         <DefaultSelect label={t('settings.defaultTask')} field="taskAccountId" />
+        <DefaultSelect label={t('settings.defaultCalendar')} field="calendarAccountId" />
         <DefaultSelect label={t('settings.defaultMeeting')} field="meetingAccountId" />
         <DefaultSelect label={t('settings.defaultContacts')} field="contactsAccountId" />
         <DefaultSelect label={t('settings.defaultNotes')} field="notesAccountId" provider="google" />

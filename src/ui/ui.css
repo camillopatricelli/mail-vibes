@@ -1,7 +1,7 @@
 /* ---------- Shell layout ---------- */
 .shell {
   display: grid;
-  grid-template-columns: var(--rail-width) 1fr;
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
   grid-template-rows: var(--top-bar-height) 1fr;
   grid-template-areas:
     'top top'
@@ -114,7 +114,7 @@
 /* Compact & medium windows: bottom navigation bar instead of the rail */
 @media (max-width: 839px) {
   .shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto 1fr auto;
     grid-template-areas: 'top' 'content' 'nav';
     background: var(--md-sys-color-surface);

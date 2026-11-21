@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import './auth/accounts'
 import { applyLanguage, resolveLanguage } from './i18n'
 import { MailPage } from './mail/MailPage'
+import { CalendarPage } from './calendar/CalendarPage'
 import { navigate, useLocation } from './lib/router'
 import { PlaceholderPage, PrivacyPage, TodayPage } from './pages/SimplePages'
 import { SettingsPage } from './pages/SettingsPage'
@@ -51,8 +52,10 @@ export function App() {
       page = <MailPage />
       break
     case 'calendar':
+      page = <CalendarPage />
+      break
     case 'tasks':
-      page = <PlaceholderPage section={route} />
+      page = <PlaceholderPage section="tasks" />
       break
     case 'settings':
       page = <SettingsPage />

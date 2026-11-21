@@ -31,6 +31,8 @@ export interface Defaults {
   sendAccountId?: string
   taskAccountId?: string
   meetingAccountId?: string
+  /** Account whose main calendar receives new events */
+  calendarAccountId?: string
   notesAccountId?: string
   contactsAccountId?: string
 }
@@ -50,6 +52,8 @@ export interface Settings {
   customTenants: MicrosoftTenantConfig[]
   /** User-chosen display names for organisations, by key (overrides the built-in name) */
   tenantNames: Record<string, string>
+  /** Calendars hidden from the merged calendar, as "accountId|calendarId" */
+  hiddenCalendars: string[]
   /** Timestamp the "notifications only while open" reminder was last dismissed */
   notifyReminderDismissedAt?: number
 }
@@ -84,6 +88,7 @@ export const defaultSettings: Settings = {
   imagesAllowedFrom: [],
   customTenants: [],
   tenantNames: {},
+  hiddenCalendars: [],
 }
 
 interface SettingsActions {
@@ -121,7 +126,11 @@ export const useSettings = create<Settings & SettingsActions>()(
       removeAccount: (id) => {
         const defaults = { ...get().defaults }
         for (const k of Object.keys(defaults) as (keyof Defaults)[]) if (defaults[k] === id) delete defaults[k]
-        set({ accounts: get().accounts.filter((a) => a.id !== id), defaults })
+        set({
+          accounts: get().accounts.filter((a) => a.id !== id),
+          defaults,
+          hiddenCalendars: get().hiddenCalendars.filter((k) => !k.startsWith(`${id}|`)),
+        })
       },
       addTenant: (t) =>
         set({ customTenants: [...get().customTenants, { ...t, key: `custom-${crypto.randomUUID()}` }] }),
@@ -162,6 +171,7 @@ export function pickSettings(s: Settings): Settings {
     imagesAllowedFrom: s.imagesAllowedFrom,
     customTenants: s.customTenants,
     tenantNames: s.tenantNames,
+    hiddenCalendars: s.hiddenCalendars ?? [],
     notifyReminderDismissedAt: s.notifyReminderDismissedAt,
   }
 }
@@ -193,7 +203,7 @@ export function parseSettingsJson(text: string): Settings {
   const s = r.settings as Partial<Settings> | undefined
   if (!s || typeof s !== 'object') throw new Error('missing settings')
 
-  const out: Settings = { ...defaultSettings, accounts: [], defaults: {}, imagesAllowedFrom: [], customTenants: [], tenantNames: {} }
+  const out: Settings = { ...defaultSettings, accounts: [], defaults: {}, imagesAllowedFrom: [], customTenants: [], tenantNames: {}, hiddenCalendars: [] }
   if (s.language === 'auto' || s.language === 'en' || s.language === 'it') out.language = s.language
   if (s.theme === 'system' || s.theme === 'light' || s.theme === 'dark') out.theme = s.theme
   if (isHex(s.seedColor)) out.seedColor = s.seedColor
@@ -225,11 +235,12 @@ export function parseSettingsJson(text: string): Settings {
   }
   const ids = new Set(out.accounts.map((a) => a.id))
   if (s.defaults && typeof s.defaults === 'object') {
-    for (const k of ['sendAccountId', 'taskAccountId', 'meetingAccountId', 'notesAccountId', 'contactsAccountId'] as const) {
+    for (const k of ['sendAccountId', 'taskAccountId', 'meetingAccountId', 'calendarAccountId', 'notesAccountId', 'contactsAccountId'] as const) {
       const v = s.defaults[k]
       if (isStr(v) && ids.has(v)) out.defaults[k] = v
     }
   }
+  if (Array.isArray(s.hiddenCalendars)) out.hiddenCalendars = s.hiddenCalendars.filter((k) => isStr(k) && ids.has(k.split('|')[0]))
   if (Array.isArray(s.imagesAllowedFrom)) out.imagesAllowedFrom = s.imagesAllowedFrom.filter(isStr)
   if (Array.isArray(s.customTenants)) {
     out.customTenants = s.customTenants

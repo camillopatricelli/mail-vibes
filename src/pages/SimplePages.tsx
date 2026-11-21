@@ -3,6 +3,7 @@ import { href } from '../lib/router'
 import { useSettings } from '../settings/store'
 import { Card, EmptyState, Icon, type IconName } from '../ui/components'
 import { TodayMail } from '../mail/TodayMail'
+import { TodayAgenda } from '../calendar/TodayAgenda'
 
 function NoAccountsHint() {
   const { t } = useTranslation()
@@ -33,7 +34,7 @@ export function TodayPage() {
               <Icon name={p.icon} />
               <h2 className="title-medium">{p.title}</h2>
             </header>
-            {i === 0 ? <TodayMail /> : <p className="body-medium muted">{t('placeholder.comingSoon')}</p>}
+            {i === 0 ? <TodayMail /> : i === 1 ? <TodayAgenda /> : <p className="body-medium muted">{t('placeholder.comingSoon')}</p>}
           </Card>
         ))}
       </div>

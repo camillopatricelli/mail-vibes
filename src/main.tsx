@@ -4,6 +4,7 @@ import '@fontsource/roboto/700.css'
 import './theme/global.css'
 import './ui/ui.css'
 import './mail/mail.css'
+import './calendar/calendar.css'
 
 /**
  * The OAuth redirect URI is the app's root. When Microsoft sends the browser back here with an

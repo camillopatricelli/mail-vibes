@@ -15,8 +15,9 @@ colours, preferences, default accounts) and the sign-in libraries' token caches 
 ## Microsoft 365 organisations
 
 The app ships with no organisations built in. Each Microsoft 365 organisation needs its own
-Microsoft Entra app registration (single-page application). Its administrator can share it with
-users in one of three ways:
+Microsoft Entra app registration (single-page application): see
+[docs/microsoft-setup.md](docs/microsoft-setup.md). Its administrator can share it with users in
+one of three ways:
 
 - **Setup link:** in Settings → Microsoft 365 organisations, the link button copies a URL such as
   `https://<host>/mail-vibes/#/setup/org/<code>`. Opening it asks the user to confirm adding the

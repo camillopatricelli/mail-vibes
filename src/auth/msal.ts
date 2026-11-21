@@ -149,10 +149,10 @@ async function findMsalAccount(accountId: string): Promise<{ pca: IPublicClientA
  * Returns an access token for Microsoft Graph. Never prompts: if interaction is needed it throws
  * AuthRequiredError, which the caller reports so the UI shows a "Sign in" banner for the account.
  */
-export async function getGraphToken(accountId: string, forceRefresh = false): Promise<string> {
+export async function getGraphToken(accountId: string, forceRefresh = false, scopes = GRAPH_SCOPES): Promise<string> {
   const { pca, account } = await findMsalAccount(accountId)
   try {
-    const r = await pca.acquireTokenSilent({ account, scopes: GRAPH_SCOPES, forceRefresh })
+    const r = await pca.acquireTokenSilent({ account, scopes, forceRefresh })
     return r.accessToken
   } catch (e) {
     if (e instanceof InteractionRequiredAuthError) throw new AuthRequiredError()
@@ -188,5 +188,34 @@ export async function forgetMicrosoftAccount(accountId: string) {
     await pca.clearCache({ account })
   } catch {
     // Already gone from the cache; nothing to clear.
+  }
+}
+
+/**
+ * Optional permission, asked only when used: creating a Teams meeting link for an event that
+ * lives in another account (e.g. a Google Calendar event with a Teams meeting). Organisations
+ * must allow it (admin consent for OnlineMeetings.ReadWrite).
+ */
+export const ONLINE_MEETING_SCOPES = ['OnlineMeetings.ReadWrite']
+
+export async function hasOnlineMeetingConsent(accountId: string) {
+  try {
+    await getGraphToken(accountId, false, ONLINE_MEETING_SCOPES)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Interactive consent for ONLINE_MEETING_SCOPES (must run inside a click). */
+export async function consentOnlineMeetings(accountId: string): Promise<boolean> {
+  const { pca, account } = await findMsalAccount(accountId)
+  const request = { scopes: ONLINE_MEETING_SCOPES, loginHint: account.username }
+  try {
+    await pca.acquireTokenPopup(request)
+    return true
+  } catch (e) {
+    if (isUserCancel(e)) return false
+    throw e
   }
 }

@@ -21,7 +21,7 @@ import {
 } from './compose'
 import type { Address } from './types'
 
-function RecipientField({
+export function RecipientField({
   label,
   value,
   onChange,

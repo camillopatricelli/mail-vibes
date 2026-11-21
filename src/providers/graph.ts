@@ -35,6 +35,8 @@ export interface GraphRequest {
   /** Don't update the account's status (e.g. for best-effort background lookups) */
   quiet?: boolean
   signal?: AbortSignal
+  /** Graph only: request a token for these scopes instead of the standard set */
+  scopes?: string[]
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -45,7 +47,7 @@ export async function graph<T = unknown>(accountId: string, path: string, req: G
   try {
     let forceRefresh = false
     for (let attempt = 0; ; attempt++) {
-      const token = await getGraphToken(accountId, forceRefresh)
+      const token = await getGraphToken(accountId, forceRefresh, req.scopes)
       let res: Response
       try {
         res = await fetch(url, {
