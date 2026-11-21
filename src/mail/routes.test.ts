@@ -8,6 +8,7 @@ describe('mail routes', () => {
     const views: MailView[] = [
       { kind: 'well', folder: 'sent' },
       { kind: 'custom', accountId: 'microsoft:abc.def-1', folderId: 'AAMkAD/x+y==' },
+      { kind: 'tag', name: 'Clients/Acme & Co' },
     ]
     for (const view of views) {
       expect(parseMailParams(params(mailHref(view)))).toEqual({ view, thread: undefined })

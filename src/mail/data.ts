@@ -6,7 +6,7 @@ import { useSettings, type AccountSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 import { isMailCapable, providerFor } from './api'
 import { rememberAddresses } from './addressBook'
-import type { Address, FolderKind, ListResult, ListTarget, MailMessage, MailSummary } from './types'
+import type { Address, FolderKind, ListResult, ListTarget, MailMessage, MailSummary, MailTag } from './types'
 
 export const PAGE_SIZE = 40
 
@@ -23,6 +23,8 @@ export interface ThreadSummary {
   flagged: boolean
   hasAttachments: boolean
   hasDraft: boolean
+  /** Tags of any message in the thread */
+  tags: string[]
   /** Messages of this thread in the current list (actions apply to these) */
   messages: MailSummary[]
 }
@@ -62,17 +64,29 @@ export function groupThreads(messages: MailSummary[]): ThreadSummary[] {
       flagged: ms.some((m) => m.isFlagged),
       hasAttachments: ms.some((m) => m.hasAttachments),
       hasDraft: ms.some((m) => m.isDraft),
+      tags: uniqueTags(ms.flatMap((m) => m.tags)),
       messages: ms,
     })
   }
   return out.sort((a, b) => b.date - a.date)
 }
 
+/** Removes duplicates, ignoring case (the first spelling wins). */
+export function uniqueTags(names: string[]) {
+  const seen = new Set<string>()
+  return names.filter((n) => {
+    const k = n.toLowerCase()
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
+}
+
 export function mailAccounts(accounts: AccountSettings[]) {
   return accounts.filter((a) => a.visible && isMailCapable(a.id))
 }
 
-const targetKey = (t: ListTarget) => (typeof t === 'string' ? t : `folder:${t.folderId}`)
+const targetKey = (t: ListTarget) => (typeof t === 'string' ? t : 'tag' in t ? `tag:${t.tag.toLowerCase()}` : `folder:${t.folderId}`)
 const listKey = (accountId: string, target: ListTarget, count: number) => ['mail', 'list', accountId, targetKey(target), count] as const
 
 /**
@@ -212,9 +226,43 @@ export function useAllFolders() {
   }))
 }
 
+export interface MergedTag {
+  name: string
+  color?: string
+  /** Accounts that have this tag */
+  accountIds: string[]
+}
+
+/** Tags of every mail account, merged by name (case-insensitive), sorted by name. */
+export function useAllTags() {
+  const accounts = useSettings((s) => s.accounts).filter((a) => isMailCapable(a.id))
+  const results = useQueries({
+    queries: accounts.map((a) => ({
+      queryKey: ['mail', 'tags', a.id],
+      queryFn: () => providerFor(a.id).tags(a.id),
+      staleTime: 5 * 60_000,
+    })),
+  })
+  return useMemo(() => {
+    const map = new Map<string, MergedTag>()
+    results.forEach((r, i) => {
+      for (const tag of (r.data as MailTag[] | undefined) ?? []) {
+        const k = tag.name.toLowerCase()
+        const m = map.get(k)
+        if (m) {
+          m.color ??= tag.color
+          m.accountIds.push(accounts[i].id)
+        } else map.set(k, { name: tag.name, color: tag.color, accountIds: [accounts[i].id] })
+      }
+    })
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results.map((r) => r.dataUpdatedAt).join(',')])
+}
+
 // ---------- Actions ----------
 
-type Patch = Partial<Pick<MailSummary, 'isRead' | 'isFlagged'>>
+type Patch = Partial<Pick<MailSummary, 'isRead' | 'isFlagged' | 'tags'>> | ((m: MailSummary) => Partial<MailSummary>)
 
 /** Applies a change to the cached lists and threads immediately (optimistic update). */
 function patchCaches(accountId: string, ids: Set<string>, patch: Patch | 'remove') {
@@ -225,13 +273,13 @@ function patchCaches(accountId: string, ids: Set<string>, patch: Patch | 'remove
           messages:
             patch === 'remove'
               ? old.messages.filter((m) => !ids.has(m.id))
-              : old.messages.map((m) => (ids.has(m.id) ? { ...m, ...patch } : m)),
+              : old.messages.map((m) => (ids.has(m.id) ? { ...m, ...(typeof patch === 'function' ? patch(m) : patch) } : m)),
         }
       : old,
   )
   if (patch !== 'remove')
     queryClient.setQueriesData<MailMessage[]>({ queryKey: ['mail', 'thread', accountId] }, (old) =>
-      old?.map((m) => (ids.has(m.id) ? { ...m, ...patch } : m)),
+      old?.map((m) => (ids.has(m.id) ? { ...m, ...(typeof patch === 'function' ? patch(m) : patch) } : m)),
     )
 }
 
@@ -240,6 +288,7 @@ function syncAfter(accountId: string) {
   void queryClient.invalidateQueries({ queryKey: ['mail', 'thread', accountId] })
   void queryClient.invalidateQueries({ queryKey: ['mail', 'unread', accountId] })
   void queryClient.invalidateQueries({ queryKey: ['mail', 'folders', accountId] })
+  void queryClient.invalidateQueries({ queryKey: ['mail', 'tags', accountId] })
 }
 
 function groupByAccount(items: { accountId: string; id: string }[]) {
@@ -286,14 +335,26 @@ export const mailActions = {
     run(items, { isRead: read }, (a, ids) => providerFor(a).setRead(a, ids, read)),
   setFlagged: (items: Item[], flagged: boolean) =>
     run(items, { isFlagged: flagged }, (a, ids) => providerFor(a).setFlagged(a, ids, flagged)),
-  archive: (items: Item[], count = items.length) =>
-    run(items, 'remove', (a, ids) => providerFor(a).move(a, ids, 'archive'), i18n.t('mail.archived', { count })),
+  /** `keep`: the messages stay in the current list (e.g. a tag view) */
+  archive: (items: Item[], count = items.length, keep = false) =>
+    run(items, keep ? {} : 'remove', (a, ids) => providerFor(a).move(a, ids, 'archive'), i18n.t('mail.archived', { count })),
   trash: (items: Item[], count = items.length) =>
     run(items, 'remove', (a, ids) => providerFor(a).move(a, ids, 'trash'), i18n.t('mail.trashed', { count })),
   moveToInbox: (items: Item[], count = items.length) =>
     run(items, 'remove', (a, ids) => providerFor(a).move(a, ids, 'inbox'), i18n.t('mail.movedToInbox', { count })),
   moveTo: (items: Item[], dest: ListTarget, folderName: string) =>
     run(items, 'remove', (a, ids) => providerFor(a).move(a, ids, dest), i18n.t('mail.moved', { folder: folderName })),
+  /** Adds and removes tags (by name) on these messages. */
+  setTags: (messages: MailSummary[], add: string[], remove: string[]) => {
+    const drop = new Set(remove.map((n) => n.toLowerCase()))
+    const next = (m: MailSummary) => uniqueTags([...m.tags.filter((n) => !drop.has(n.toLowerCase())), ...add])
+    const byId = new Map(messages.map((m) => [`${m.accountId}|${m.id}`, m]))
+    return run(
+      messages,
+      (m) => ({ tags: next(byId.get(`${m.accountId}|${m.id}`) ?? m) }),
+      (a, ids) => providerFor(a).setTags(a, ids.map((id) => byId.get(`${a}|${id}`)!).map((m) => ({ id: m.id, tags: m.tags })), add, remove),
+    )
+  },
   deleteForever: (items: Item[], count = items.length) =>
     run(items, 'remove', (a, ids) => providerFor(a).deleteForever(a, ids), i18n.t('mail.deletedForever', { count })),
 }

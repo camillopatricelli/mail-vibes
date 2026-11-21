@@ -281,6 +281,17 @@ const en = {
     moreToday_one: '{{count}} more today',
     moreToday_other: '{{count}} more today',
   },
+  tags: {
+    heading: 'Tags',
+    action: 'Tags',
+    title: 'Tags',
+    apply: 'Apply',
+    searchOrCreate: 'Search or create a tag',
+    create: 'Create tag “{{tag}}”',
+    none: 'No tags yet. Type a name to create one.',
+    remove: 'Remove tag {{tag}}',
+    gmailHint: 'In Gmail, tags are labels; in Outlook, categories. Use “/” for nested Gmail labels.',
+  },
   tasks: {
     lists: 'Lists',
     list: 'List',

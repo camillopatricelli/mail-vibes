@@ -266,3 +266,32 @@
 .custom-folder-title { display: flex; align-items: center; gap: 10px; margin: 8px 12px 4px; }
 .folder-list__note { padding: 8px 24px; }
 .message.is-unread .message__from-name, .message.is-unread .message__who .title-small { font-weight: 700; }
+
+/* Tags */
+.tag-chip {
+  display: inline-flex; align-items: center; gap: 2px; max-width: 14em; margin-right: 4px; padding: 0 6px;
+  border-radius: 4px; vertical-align: 1px; line-height: 18px; white-space: nowrap;
+  background: color-mix(in srgb, var(--tag) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tag) 50%, transparent);
+  color: var(--md-sys-color-on-surface);
+}
+.tag-chip__name { overflow: hidden; text-overflow: ellipsis; }
+.tag-chip__remove {
+  display: inline-flex; padding: 0; margin-right: -3px; border: 0; border-radius: 50%; background: none; color: inherit; cursor: pointer;
+}
+.tag-chip__remove:hover { background: color-mix(in srgb, var(--tag) 30%, transparent); }
+.thread__tags { display: flex; flex-wrap: wrap; gap: 4px; margin: -8px 16px 16px 56px; }
+.thread__tags .tag-chip { line-height: 22px; padding: 0 8px; }
+@media (max-width: 839px) { .thread__tags { margin: -4px 16px 12px; } }
+.mail-nav__tag-icon { display: inline-flex; }
+.tag-dialog { display: flex; flex-direction: column; gap: 12px; min-width: min(360px, 80vw); }
+.tag-dialog__search { flex: none; width: 100%; }
+.tag-dialog__list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; }
+.tag-dialog__item, .tag-dialog__create {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 4px; border: 0; border-radius: 8px;
+  background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.tag-dialog__item:hover, .tag-dialog__create:hover { background: var(--md-sys-color-surface-container-high); }
+.tag-dialog__dot { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.tag-dialog__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-dialog__empty { padding: 8px 4px; }

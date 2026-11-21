@@ -284,6 +284,17 @@ const it: Messages = {
     moreToday_one: 'altro {{count}} oggi',
     moreToday_other: 'altri {{count}} oggi',
   },
+  tags: {
+    heading: 'Etichette',
+    action: 'Etichette',
+    title: 'Etichette',
+    apply: 'Applica',
+    searchOrCreate: 'Cerca o crea un\u2019etichetta',
+    create: 'Crea etichetta “{{tag}}”',
+    none: 'Nessuna etichetta. Scrivi un nome per crearne una.',
+    remove: 'Rimuovi etichetta {{tag}}',
+    gmailHint: 'In Gmail le etichette sono label; in Outlook, categorie. Usa “/” per le label annidate di Gmail.',
+  },
   tasks: {
     lists: 'Elenchi',
     list: 'Elenco',

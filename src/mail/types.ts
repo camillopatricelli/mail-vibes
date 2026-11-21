@@ -22,6 +22,8 @@ export interface MailSummary {
   isFlagged: boolean
   hasAttachments: boolean
   isDraft: boolean
+  /** Tag names: Gmail user labels (full path) or Outlook categories */
+  tags: string[]
 }
 
 export interface Attachment {
@@ -53,7 +55,14 @@ export interface MailFolder {
 }
 
 /** What a list shows: a well-known folder merged across accounts, or one account's own folder. */
-export type ListTarget = FolderKind | { folderId: string }
+export type ListTarget = FolderKind | { folderId: string } | { tag: string }
+
+/** A tag as defined in one account (Gmail label or Outlook category). */
+export interface MailTag {
+  name: string
+  /** CSS colour, if the provider has one for it */
+  color?: string
+}
 
 export interface ListResult {
   messages: MailSummary[]
@@ -87,6 +96,10 @@ export interface MailProvider {
   deleteForever(accountId: string, ids: string[]): Promise<void>
   /** The user's own folders (well-known/system folders excluded), with unread counts */
   folders(accountId: string): Promise<MailFolder[]>
+  /** The account's tags (Gmail user labels, Outlook categories) */
+  tags(accountId: string): Promise<MailTag[]>
+  /** Adds and removes tags by name (creating missing ones); `messages` carry their current tags */
+  setTags(accountId: string, messages: { id: string; tags: string[] }[], add: string[], remove: string[]): Promise<void>
   /** Server-side unread count of the folder (inbox: unread messages) */
   unreadCount(accountId: string, folder: FolderKind): Promise<number>
   attachments(accountId: string, messageId: string): Promise<Attachment[]>

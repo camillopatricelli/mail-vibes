@@ -11,6 +11,7 @@ import type {
   MailMessage,
   MailProvider,
   MailSummary,
+  MailTag,
   ReplyKind,
 } from './types'
 import { escapeHtml, insertIntoBody } from './html'
@@ -39,6 +40,7 @@ interface GMessage {
   flag?: { flagStatus?: string }
   hasAttachments?: boolean
   parentFolderId?: string
+  categories?: string[]
   body?: { contentType?: string; content?: string }
 }
 interface GAttachment {
@@ -61,7 +63,7 @@ const wellKnown: Record<Exclude<FolderKind, 'starred'>, string> = {
 }
 
 const SUMMARY_FIELDS =
-  'id,conversationId,subject,bodyPreview,from,sender,toRecipients,receivedDateTime,sentDateTime,isRead,isDraft,flag,hasAttachments'
+  'id,conversationId,subject,bodyPreview,from,sender,toRecipients,receivedDateTime,sentDateTime,isRead,isDraft,flag,hasAttachments,categories'
 const FULL_FIELDS = `${SUMMARY_FIELDS},ccRecipients,bccRecipients,replyTo,parentFolderId,body`
 const HTML_BODY = { Prefer: 'outlook.body-content-type="html"' }
 
@@ -87,6 +89,7 @@ function toSummary(accountId: string, m: GMessage): MailSummary {
     isFlagged: m.flag?.flagStatus === 'flagged',
     hasAttachments: !!m.hasAttachments,
     isDraft: !!m.isDraft,
+    tags: m.categories ?? [],
   }
 }
 
@@ -180,6 +183,18 @@ function fileToBase64(file: Blob): Promise<string> {
   })
 }
 
+/** Outlook's category colour presets (approximately as Outlook shows them). */
+const PRESETS = [
+  '#e74856', '#f7894a', '#a5774f', '#fcd116', '#4cae4c', '#30c5b5', '#8fa34a', '#4f8bd6', '#8764b8', '#e3008c',
+  '#6f8a9e', '#4a5f70', '#a0a0a0', '#5d5d5d', '#2b2b2b', '#a4262c', '#ca5010', '#8e562e', '#c19c00', '#0b6a0b',
+  '#038387', '#5c7e10', '#004e8c', '#5c2e91', '#990051',
+]
+const presetColor = (c?: string) => {
+  const i = /^preset(\d+)$/.exec(c ?? '')?.[1]
+  return i === undefined ? undefined : PRESETS[Number(i)]
+}
+const quote = (s: string) => s.replace(/'/g, "''")
+
 function toAttachment(a: GAttachment): Attachment {
   return {
     id: a.id,
@@ -194,9 +209,11 @@ export const outlook: MailProvider = {
   async list(accountId, target: ListTarget, count): Promise<ListResult> {
     const top = Math.min(count, 500)
     const path =
-      target === 'starred'
+      typeof target === 'object' && 'tag' in target
+        ? `/me/messages?$filter=receivedDateTime ge 1900-01-01T00:00:00Z and categories/any(c:c eq '${encodeURIComponent(quote(target.tag))}')&$orderby=receivedDateTime desc`
+        : target === 'starred'
         ? `/me/messages?$filter=receivedDateTime ge 1900-01-01T00:00:00Z and flag/flagStatus eq 'flagged'&$orderby=receivedDateTime desc`
-        : `/me/mailFolders/${typeof target === 'string' ? wellKnown[target] : encodeURIComponent(target.folderId)}/messages?$orderby=receivedDateTime desc`
+        : `/me/mailFolders/${typeof target === 'string' ? wellKnown[target] : encodeURIComponent((target as { folderId: string }).folderId)}/messages?$orderby=receivedDateTime desc`
     const page = await graph<GraphPage<GMessage>>(accountId, `${path}&$top=${top}&$select=${SUMMARY_FIELDS}`)
     return {
       messages: page.value.map((m) => toSummary(accountId, m)),
@@ -241,7 +258,30 @@ export const outlook: MailProvider = {
     )
   },
 
+  async tags(accountId) {
+    // The category list needs MailboxSettings permission, which may not be granted: fall back to
+    // the categories used on recent messages.
+    try {
+      const r = await graph<GraphPage<{ displayName: string; color?: string }>>(accountId, '/me/outlook/masterCategories', { quiet: true })
+      return r.value.map((c): MailTag => ({ name: c.displayName, color: presetColor(c.color) }))
+    } catch {
+      const r = await graph<GraphPage<{ categories?: string[] }>>(accountId, '/me/messages?$top=250&$select=categories', { quiet: true })
+      return [...new Set(r.value.flatMap((m) => m.categories ?? []))].map((name): MailTag => ({ name }))
+    }
+  },
+
+  async setTags(accountId, messages, add, remove) {
+    const drop = new Set(remove.map((n) => n.toLowerCase()))
+    const requests = messages.map((m) => {
+      const kept = m.tags.filter((n) => !drop.has(n.toLowerCase()))
+      const next = [...kept, ...add.filter((n) => !kept.some((k) => k.toLowerCase() === n.toLowerCase()))]
+      return { method: 'PATCH', url: `/me/messages/${m.id}`, body: { categories: next } }
+    })
+    await batch(accountId, requests)
+  },
+
   async move(accountId, ids, dest) {
+    if (typeof dest === 'object' && 'tag' in dest) throw new ApiError(`Cannot move messages to ${dest.tag}`, 400)
     const destinationId = typeof dest === 'string' ? (dest === 'starred' ? 'inbox' : wellKnown[dest]) : dest.folderId
     await batch(accountId, ids.map((id) => ({ method: 'POST', url: `/me/messages/${id}/move`, body: { destinationId } })))
   },

@@ -4,7 +4,7 @@ import { google, googleBatch } from '../providers/google'
 import { useSettings } from '../settings/store'
 import { sanitizeForEditor, escapeHtml } from './html'
 import { buildMime, decodeBase64Url, decodeText, parseAddressHeader, type MimeAttachment } from './mime'
-import type { Address, Attachment, DraftContent, FolderKind, ListTarget, MailFolder, MailMessage, MailProvider, MailSummary } from './types'
+import type { Address, Attachment, DraftContent, FolderKind, ListTarget, MailFolder, MailMessage, MailProvider, MailSummary, MailTag } from './types'
 
 /**
  * Gmail via the Gmail REST API. Gmail has labels instead of folders: well-known folders map to
@@ -43,7 +43,36 @@ interface GLabel {
   threadsUnread?: number
   messagesUnread?: number
   labelListVisibility?: string
+  color?: { backgroundColor?: string; textColor?: string }
 }
+
+/** The account's user labels, by id and by lower-case name. */
+interface LabelInfo {
+  byId: Map<string, GLabel>
+  byName: Map<string, GLabel>
+}
+const labelCache = new Map<string, Promise<LabelInfo>>()
+function labelInfo(accountId: string, refresh = false): Promise<LabelInfo> {
+  let p = labelCache.get(accountId)
+  if (!p || refresh) {
+    p = google<{ labels?: GLabel[] }>(accountId, `${API}/labels`).then((r) => {
+      const user = (r.labels ?? []).filter((l) => l.type === 'user')
+      return { byId: new Map(user.map((l) => [l.id, l])), byName: new Map(user.map((l) => [l.name.toLowerCase(), l])) }
+    })
+    labelCache.set(accountId, p)
+    p.catch(() => labelCache.delete(accountId))
+  }
+  return p
+}
+
+/** Labels made elsewhere since the last look (e.g. in Gmail) trigger one refresh. */
+async function labelsFor(accountId: string, msgs: { labelIds?: string[] }[]) {
+  const info = await labelInfo(accountId)
+  const unknown = msgs.some((m) => m.labelIds?.some((l) => l.startsWith('Label_') && !info.byId.has(l)))
+  return unknown ? labelInfo(accountId, true) : info
+}
+
+const tagsOf = (m: GMsg, labels?: LabelInfo) => (m.labelIds ?? []).flatMap((id) => labels?.byId.get(id)?.name ?? [])
 
 const header = (p: GPart | undefined, name: string) =>
   p?.headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value
@@ -107,7 +136,7 @@ function kindOf(labels: string[]): Exclude<FolderKind, 'starred'> {
   return 'archive'
 }
 
-function toSummary(accountId: string, m: GMsg): MailSummary {
+function toSummary(accountId: string, m: GMsg, info?: LabelInfo): MailSummary {
   const labels = m.labelIds ?? []
   return {
     accountId,
@@ -122,14 +151,15 @@ function toSummary(accountId: string, m: GMsg): MailSummary {
     isFlagged: labels.includes('STARRED'),
     hasAttachments: m.payload?.mimeType === 'multipart/mixed' || attachmentsOf(m.payload).some((a) => !a.isInline),
     isDraft: labels.includes('DRAFT'),
+    tags: tagsOf(m, info),
   }
 }
 
-function toMessage(accountId: string, m: GMsg): MailMessage {
+function toMessage(accountId: string, m: GMsg, labels?: LabelInfo): MailMessage {
   const { html, isHtml } = bodyOf(m.payload)
   const atts = attachmentsOf(m.payload)
   return {
-    ...toSummary(accountId, m),
+    ...toSummary(accountId, m, labels),
     hasAttachments: atts.some((a) => !a.isInline),
     cc: parseAddressHeader(header(m.payload, 'Cc')),
     bcc: parseAddressHeader(header(m.payload, 'Bcc')),
@@ -414,24 +444,28 @@ export const gmail: MailProvider = {
       if (q.labelIds) params.set('labelIds', q.labelIds)
       if (q.q) params.set('q', q.q)
       if (q.spamTrash) params.set('includeSpamTrash', 'true')
+    } else if ('tag' in target) {
+      const label = (await labelInfo(accountId)).byName.get(target.tag.toLowerCase())
+      if (!label) return { messages: [], hasMore: false }
+      params.set('labelIds', label.id)
     } else params.set('labelIds', target.folderId)
     const page = await google<{ messages?: { id: string }[]; nextPageToken?: string }>(accountId, `${API}/messages?${params}`)
     const ids = (page.messages ?? []).map((m) => m.id)
     const cache = await summaries(accountId, ids)
+    const found = ids.flatMap((id) => cache.get(id) ?? [])
+    const labels = await labelsFor(accountId, found)
     return {
-      messages: ids.flatMap((id) => {
-        const m = cache.get(id)
-        return m ? [toSummary(accountId, m)] : []
-      }),
+      messages: found.map((m) => toSummary(accountId, m, labels)),
       hasMore: !!page.nextPageToken,
     }
   },
 
   async thread(accountId, threadId) {
     const t = await google<{ messages?: GMsg[] }>(accountId, `${API}/threads/${threadId}?format=full`)
+    const labels = await labelsFor(accountId, t.messages ?? [])
     return (t.messages ?? []).map((m) => {
       fullCache.set(`${accountId}|${m.id}`, Promise.resolve(m))
-      return toMessage(accountId, m)
+      return toMessage(accountId, m, labels)
     }).sort((a, b) => a.date - b.date)
   },
 
@@ -440,8 +474,34 @@ export const gmail: MailProvider = {
   setFlagged: (accountId, ids, flagged) =>
     flagged ? modify(accountId, ids, ['STARRED'], []) : modify(accountId, ids, [], ['STARRED']),
 
+  async tags(accountId) {
+    const info = await labelInfo(accountId, true)
+    return [...info.byId.values()].map((l): MailTag => ({ name: l.name, color: l.color?.backgroundColor }))
+  },
+
+  async setTags(accountId, messages, add, remove) {
+    let info = await labelInfo(accountId)
+    const addIds: string[] = []
+    for (const name of add) {
+      let label = info.byName.get(name.toLowerCase())
+      if (!label) {
+        label = await google<GLabel>(accountId, `${API}/labels`, {
+          method: 'POST',
+          body: { name, labelListVisibility: 'labelShow', messageListVisibility: 'show' },
+        })
+        info = await labelInfo(accountId, true)
+      }
+      addIds.push(label.id)
+    }
+    const removeIds = remove.flatMap((n) => info.byName.get(n.toLowerCase())?.id ?? [])
+    if (addIds.length || removeIds.length) await modify(accountId, messages.map((m) => m.id), addIds, removeIds)
+  },
+
   async move(accountId, ids, dest) {
-    if (typeof dest !== 'string') return modify(accountId, ids, [dest.folderId], ['INBOX', 'SPAM'])
+    if (typeof dest !== 'string') {
+      if ('tag' in dest) throw new ApiError(`Cannot move messages to ${dest.tag}`, 400)
+      return modify(accountId, ids, [dest.folderId], ['INBOX', 'SPAM'])
+    }
     switch (dest) {
       case 'trash':
         return perMessage(accountId, ids, 'trash')
