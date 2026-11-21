@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isValidEmail, parseAddresses } from './addressBook'
+import { isContact, isValidEmail, parseAddresses, rememberAddresses, setContacts, suggestAddresses } from './addressBook'
 
 describe('parseAddresses', () => {
   it('parses names, quotes and separators', () => {
@@ -13,5 +13,16 @@ describe('parseAddresses', () => {
     expect(isValidEmail('a.b+c@example.co.uk')).toBe(true)
     expect(isValidEmail('nope@')).toBe(false)
     expect(isValidEmail('two words@example.com')).toBe(false)
+  })
+})
+
+describe('suggestAddresses', () => {
+  it('puts contacts first, then addresses seen in mail', () => {
+    rememberAddresses([{ name: 'Annette Seen', email: 'annette@seen.test' }])
+    setContacts('google:1', [{ name: 'Ann Contact', email: 'ann@contacts.test' }])
+    expect(suggestAddresses('ann', []).map((a) => a.email)).toEqual(['ann@contacts.test', 'annette@seen.test'])
+    expect(isContact('ANN@contacts.test')).toBe(true)
+    setContacts('google:1', [])
+    expect(isContact('ann@contacts.test')).toBe(false)
   })
 })

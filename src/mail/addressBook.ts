@@ -1,10 +1,27 @@
 import type { Address } from './types'
 
 /**
- * In-memory list of addresses seen in loaded mail, used for recipient suggestions until the
- * contacts source arrives (phase 5). Never persisted.
+ * Recipient suggestions: the contacts of every account first, then addresses seen in loaded
+ * mail. In memory only, never persisted.
  */
 const book = new Map<string, Address>()
+const contactsByAccount = new Map<string, Address[]>()
+let contacts = new Map<string, Address>()
+
+/** Replaces one account's contacts. */
+export function setContacts(accountId: string, list: Address[]) {
+  contactsByAccount.set(accountId, list)
+  const next = new Map<string, Address>()
+  for (const l of contactsByAccount.values())
+    for (const a of l) {
+      const k = a.email.toLowerCase()
+      const prev = next.get(k)
+      if (!prev || (!prev.name && a.name)) next.set(k, { name: a.name, email: a.email })
+    }
+  contacts = next
+}
+
+export const isContact = (email: string) => contacts.has(email.toLowerCase())
 
 export function rememberAddresses(list: Address[]) {
   for (const a of list) {
@@ -20,12 +37,16 @@ export function suggestAddresses(query: string, exclude: Address[], limit = 8): 
   if (!q) return []
   const ex = new Set(exclude.map((a) => a.email.toLowerCase()))
   const out: Address[] = []
-  for (const a of book.values()) {
-    if (ex.has(a.email.toLowerCase())) continue
-    if (a.email.toLowerCase().includes(q) || a.name.toLowerCase().includes(q)) out.push(a)
+  const matches = (a: Address) => a.email.toLowerCase().includes(q) || a.name.toLowerCase().includes(q)
+  // Names or addresses that start with the text come before other matches.
+  const starts = (a: Address) => a.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)) || a.email.toLowerCase().startsWith(q)
+  for (const source of [contacts, book]) {
+    const found = [...source.values()].filter((a) => !ex.has(a.email.toLowerCase()) && matches(a) && !out.some((o) => o.email.toLowerCase() === a.email.toLowerCase()))
+    found.sort((a, b) => Number(starts(b)) - Number(starts(a)))
+    out.push(...found)
     if (out.length >= limit) break
   }
-  return out
+  return out.slice(0, limit)
 }
 
 const EMAIL = /^[^\s@<>()[\],;:"]+@[^\s@<>()[\],;:"]+\.[^\s@<>()[\],;:"]{2,}$/

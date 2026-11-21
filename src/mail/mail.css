@@ -143,6 +143,8 @@
 .message__head { display: flex; align-items: flex-start; gap: 12px; }
 .message__who { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; border: 0; background: none; text-align: left; cursor: pointer; padding: 2px 0; }
 .message__to { flex-basis: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.address-link { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; border-radius: 4px; }
+.address-link:hover, .address-link[aria-expanded='true'] { text-decoration: underline; }
 .message__date { white-space: nowrap; padding-top: 4px; }
 .message-body { margin: 8px 0 0 52px; }
 @media (max-width: 839px) { .message-body { margin-left: 0; } .messages { padding: 0; } }

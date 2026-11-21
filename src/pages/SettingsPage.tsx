@@ -1,3 +1,5 @@
+import { useQuery } from '@tanstack/react-query'
+import { loadContacts } from '../contacts/contacts'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { appInfo } from '../config'
@@ -309,6 +311,23 @@ function DefaultSelect({
   )
 }
 
+/** How the contacts of the default contacts account loaded (shown under the setting). */
+function ContactsStatus() {
+  const { t } = useTranslation()
+  const id = useSettings((s) => s.defaults.contactsAccountId ?? s.accounts[0]?.id)
+  const q = useQuery({ queryKey: ['contacts', id], enabled: !!id, queryFn: () => loadContacts(id!), staleTime: 30 * 60_000, retry: 1 })
+  if (!id) return null
+  return (
+    <p className={q.error ? 'body-small field-error' : 'body-small muted'}>
+      {q.error
+        ? t('contacts.loadFailed', { reason: (q.error as Error).message })
+        : q.data
+          ? `${t('contacts.loaded', { count: q.data.length })}. ${t('contacts.hint')}`
+          : t('contacts.hint')}
+    </p>
+  )
+}
+
 export function SettingsPage() {
   const { t } = useTranslation()
   const s = useSettings()
@@ -368,6 +387,7 @@ export function SettingsPage() {
         <DefaultSelect label={t('settings.defaultCalendar')} field="calendarAccountId" />
         <DefaultSelect label={t('settings.defaultMeeting')} field="meetingAccountId" />
         <DefaultSelect label={t('settings.defaultContacts')} field="contactsAccountId" />
+        <ContactsStatus />
         <DefaultSelect label={t('settings.defaultNotes')} field="notesAccountId" provider="google" />
       </Section>
 

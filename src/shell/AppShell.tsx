@@ -9,6 +9,7 @@ import { FilterChip, Icon, IconButton, type IconName } from '../ui/components'
 import { Banners, Toasts } from './Banners'
 import { ComposerStack } from '../mail/Composer'
 import { useNotifyReminder } from './reminders'
+import { useContactsSync } from '../contacts/contacts'
 
 const sections: { route: Route; icon: IconName; key: string }[] = [
   { route: 'today', icon: 'today', key: 'nav.today' },
@@ -164,6 +165,7 @@ function AccountFilters() {
 export function AppShell({ children }: { children: ReactNode }) {
   const { route } = useLocation()
   useNotifyReminder()
+  useContactsSync()
   const showFilters = route !== 'settings' && route !== 'privacy' && route !== 'setup'
   return (
     <div className="shell">

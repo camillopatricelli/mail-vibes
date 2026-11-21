@@ -15,6 +15,7 @@ import { openDraft, openNew, openReply } from './compose'
 import { mailActions, useAllFolders, useAllTags, useFolders, useMergedFolder, useThread, useUnreadCounts, type ThreadSummary } from './data'
 import { TagChip, TagDialog, tagColor } from './Tags'
 import { MailTaskDialog } from '../tasks/MailTaskDialog'
+import { AddressMenu } from './AddressMenu'
 import { MessageBody } from './MessageBody'
 import { goMail, isMixed, mailHref, parseMailParams, sameView, uiFolder, viewTarget, type MailView, type UiFolder } from './routes'
 import { folderKinds, type FolderKind, type ListTarget, type MailMessage, type MailSummary } from './types'
@@ -554,10 +555,24 @@ function MessageCard({ m, expanded, onToggle, account, onAddTask }: { m: MailMes
     <li className={['message', !m.isRead && 'is-unread'].filter(Boolean).join(' ')}>
       <header className="message__head">
         <AccountBadge color={account?.color ?? '#888'} label={displayName(m.from)} size={40} />
-        <button type="button" className="message__who" onClick={onToggle} aria-expanded>
-          <span className="title-small">{displayName(m.from)}</span> <span className="body-small muted">&lt;{m.from.email}&gt;</span>
-          <span className="body-small muted message__to">{t('mail.toList', { list: recipients.map((a) => formatAddress(a)).join(', ') || '—' })}</span>
-        </button>
+        {/* Clicking the header collapses the message; the addresses open their own menu. */}
+        <div className="message__who" onClick={(e) => e.currentTarget.contains(e.target as Node) && onToggle()}>
+          <AddressMenu address={m.from} className="title-small">
+            {displayName(m.from)}
+          </AddressMenu>
+          <span className="body-small muted">&lt;{m.from.email}&gt;</span>
+          <span className="body-small muted message__to">
+            {t('mail.toPrefix')}{' '}
+            {recipients.length
+              ? recipients.map((a, i) => (
+                  <span key={a.email + i}>
+                    <AddressMenu address={a}>{formatAddress(a)}</AddressMenu>
+                    {i < recipients.length - 1 && ', '}
+                  </span>
+                ))
+              : '—'}
+          </span>
+        </div>
         <span className="body-small muted message__date" title={fullDate(m.date)}>
           {listDate(m.date)}
         </span>
