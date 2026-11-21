@@ -1,3 +1,4 @@
+import { accountLabel } from '../settings/store'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNow } from '../lib/time'
@@ -52,8 +53,8 @@ function CalendarList() {
         return (
           <section key={a.id}>
             <h3 className="title-small cal-list__account">
-              <AccountBadge color={a.color} label={a.displayName || a.email} size={18} />
-              <span>{a.displayName || a.email}</span>
+              <AccountBadge color={a.color} label={accountLabel(a)} size={18} />
+              <span>{accountLabel(a)}</span>
             </h3>
             {err && (
               <p className="body-small field-error" role="alert">

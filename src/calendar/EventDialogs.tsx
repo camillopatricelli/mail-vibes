@@ -7,7 +7,7 @@ import { consentOnlineMeetings, hasOnlineMeetingConsent } from '../auth/msal'
 import { RecipientField } from '../mail/Composer'
 import { htmlToPlain } from '../mail/mime'
 import { isValidEmail } from '../mail/addressBook'
-import { useSettings, type AccountSettings } from '../settings/store'
+import { accountLabel, accountLongLabel, useSettings } from '../settings/store'
 import { AccountBadge, Button, Icon, type IconName } from '../ui/components'
 import { Dialog, Spinner } from '../ui/overlay'
 import { calendarFor, calendarKey } from './api'
@@ -17,7 +17,6 @@ import { eventWhen } from './format'
 import type { Address } from '../mail/types'
 import type { CalEvent, EventDraft, MeetingChoice, Repeat, Response, SeriesInfo } from './types'
 
-const accountLabel = (a?: AccountSettings) => (a ? (a.displayName ? `${a.displayName} (${a.email})` : a.email) : '')
 
 function sanitizeDescription(html: string) {
   const clean = DOMPurify.sanitize(html, {
@@ -137,7 +136,7 @@ export function EventDetails({ event, onClose, onEdit }: { event: ShownEvent; on
             {event.calendarName}
             {account && (
               <span className="event-details__account">
-                <AccountBadge color={account.color} label={account.displayName || account.email} size={16} /> {account.email}
+                <AccountBadge color={account.color} label={accountLabel(account)} size={16} /> {account.email}
               </span>
             )}
           </span>
@@ -505,7 +504,7 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
           <Icon name="calendar_month" />
           <select className="select" value={calKey} disabled={!!existing} onChange={(e) => setCalKey(e.target.value)} aria-label={t('calendar.calendar')}>
             {byAccount.map(({ a, cals }) => (
-              <optgroup key={a.id} label={accountLabel(a)}>
+              <optgroup key={a.id} label={accountLongLabel(a)}>
                 {cals.map((c) => (
                   <option key={c.id} value={calendarKey(c.accountId, c.id)}>
                     {c.name}
@@ -577,7 +576,7 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
               <option value="none">{t('calendar.noMeeting')}</option>
               {accounts.map((a) => (
                 <option key={a.id} value={`${a.provider === 'microsoft' ? 'teams' : 'meet'}:${a.id}`}>
-                  {t(a.provider === 'microsoft' ? 'calendar.teamsFrom' : 'calendar.meetFrom', { account: accountLabel(a) })}
+                  {t(a.provider === 'microsoft' ? 'calendar.teamsFrom' : 'calendar.meetFrom', { account: accountLongLabel(a) })}
                 </option>
               ))}
             </select>

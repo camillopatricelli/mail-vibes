@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { addDays, fromDateKey, startOfDay, toDateKey } from '../calendar/dates'
 import { dateLocale } from '../calendar/format'
 import { navigate, useLocation } from '../lib/router'
-import { useSettings } from '../settings/store'
+import { accountLabel, accountLongLabel, useSettings } from '../settings/store'
 import { AccountBadge, Button, Icon, IconButton } from '../ui/components'
 import { Dialog, Spinner } from '../ui/overlay'
 import { notesWithoutMail } from './mailLink'
@@ -52,7 +52,7 @@ export function TaskRow({ task, onOpen, showList }: { task: ShownTask; onOpen: (
             )}
             {showList && (
               <span className="task-row__list body-small muted">
-                {account && <AccountBadge color={account.color} label={account.displayName || account.email} size={14} />}
+                {account && <AccountBadge color={account.color} label={accountLabel(account)} size={14} />}
                 {task.listName}
               </span>
             )}
@@ -82,8 +82,8 @@ function ListPanel() {
         return (
           <section key={a.id}>
             <h3 className="title-small cal-list__account">
-              <AccountBadge color={a.color} label={a.displayName || a.email} size={18} />
-              <span>{a.displayName || a.email}</span>
+              <AccountBadge color={a.color} label={accountLabel(a)} size={18} />
+              <span>{accountLabel(a)}</span>
             </h3>
             {err && (
               <p className="body-small field-error" role="alert">
@@ -121,7 +121,7 @@ export function ListSelect({ value, onChange, className = 'select' }: { value: s
         const own = lists.filter((l) => l.accountId === a.id && !l.readOnly)
         if (!own.length) return null
         return (
-          <optgroup key={a.id} label={a.displayName ? `${a.displayName} (${a.email})` : a.email}>
+          <optgroup key={a.id} label={accountLongLabel(a)}>
             {own.map((l) => (
               <option key={l.id} value={listKey(l.accountId, l.id)}>
                 {l.name}
@@ -392,7 +392,7 @@ export function TasksPage() {
                   return (
                     <section key={s.key} className={['task-section', s.key === 'overdue' && 'is-overdue'].filter(Boolean).join(' ')}>
                       <h2 className="title-small task-section__head">
-                        {a && <AccountBadge color={a.color} label={a.displayName || a.email} size={18} />}
+                        {a && <AccountBadge color={a.color} label={accountLabel(a)} size={18} />}
                         <span>{s.title}</span>
                         <span className="muted">{s.items.length}</span>
                       </h2>

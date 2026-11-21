@@ -19,6 +19,8 @@ import {
   type AccountSettings,
   type Defaults,
   type Provider,
+  accountLabel,
+  accountLongLabel,
 } from '../settings/store'
 import { useStatus } from '../status/store'
 import { AccountBadge, Button, Card, IconButton } from '../ui/components'
@@ -67,7 +69,19 @@ function ColorPicker({ value, onChange, label }: { value: string; onChange: (c: 
 }
 
 /** Text input that commits on blur / Enter, so typing doesn't write settings on every keystroke. */
-function InlineText({ value, onCommit, label, className }: { value: string; onCommit: (v: string) => void; label: string; className?: string }) {
+function InlineText({
+  value,
+  onCommit,
+  label,
+  className,
+  placeholder,
+}: {
+  value: string
+  onCommit: (v: string) => void
+  label: string
+  className?: string
+  placeholder?: string
+}) {
   const [draft, setDraft] = useState(value)
   const [prev, setPrev] = useState(value)
   if (prev !== value) {
@@ -78,6 +92,7 @@ function InlineText({ value, onCommit, label, className }: { value: string; onCo
     <input
       className={['text-field', className].filter(Boolean).join(' ')}
       value={draft}
+      placeholder={placeholder}
       aria-label={label}
       title={label}
       onChange={(e) => setDraft(e.target.value)}
@@ -105,14 +120,26 @@ function AccountRow({ a }: { a: AccountSettings }) {
       : t('accounts.neverUpdated')
   return (
     <div className="account-row" style={{ borderLeftColor: a.color }}>
-      <AccountBadge color={a.color} label={a.displayName || a.email} size={32} />
+      <AccountBadge color={a.color} label={accountLabel(a)} size={32} />
       <div className="account-row__text">
         <InlineText
           className="title-small"
-          value={a.displayName}
-          label={`${t('settings.accountName')} — ${a.email}`}
-          onCommit={(displayName) => updateAccount(a.id, { displayName: displayName.trim() || a.email })}
+          value={a.label ?? ''}
+          placeholder={a.displayName || a.email}
+          label={`${t('settings.accountLabel')} — ${a.email}`}
+          onCommit={(label) => updateAccount(a.id, { label: label.trim() || undefined })}
         />
+        {a.provider === 'google' && (
+          <label className="body-small muted account-row__sender">
+            {t('settings.senderName')}
+            <InlineText
+              className="body-small"
+              value={a.displayName}
+              label={`${t('settings.senderName')} — ${a.email}`}
+              onCommit={(displayName) => updateAccount(a.id, { displayName: displayName.trim() || a.email })}
+            />
+          </label>
+        )}
         <p className="body-small muted">
           {a.email} · {a.provider === 'google' ? t('accounts.google') : tenantName ?? t('accounts.microsoft')} · {state}
         </p>
@@ -304,7 +331,7 @@ function DefaultSelect({
         <option value="">{t('settings.noneSet')}</option>
         {accounts.map((a) => (
           <option key={a.id} value={a.id}>
-            {a.displayName ? `${a.displayName} (${a.email})` : a.email}
+            {accountLongLabel(a)}
           </option>
         ))}
       </select>

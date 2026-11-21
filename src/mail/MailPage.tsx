@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { displayName, fullDate, listDate } from '../lib/format'
 import { href, useLocation } from '../lib/router'
 import { timeAgo, useNow } from '../lib/time'
-import { useSettings, type AccountSettings } from '../settings/store'
+import { accountLabel, useSettings, type AccountSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 import { AccountBadge, Button, EmptyState, Icon, IconButton, type IconName } from '../ui/components'
 import { Dialog, Menu, Spinner } from '../ui/overlay'
@@ -34,9 +34,49 @@ function useAccountMap() {
   return useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts])
 }
 
-const accountLabel = (a: AccountSettings) => a.displayName || a.email
-
 // ---------- Navigation ----------
+
+const NAV_KEY = 'mail-vibes.nav-collapsed'
+
+/** Which sidebar groups are folded ("tags", "folders", account ids); remembered on this device. */
+function useNavCollapsed() {
+  const [collapsed, setState] = useState<Set<string>>(() => {
+    try {
+      const v: unknown = JSON.parse(localStorage.getItem(NAV_KEY) ?? '[]')
+      return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+    } catch {
+      return new Set()
+    }
+  })
+  const set = (next: Set<string>) => {
+    setState(next)
+    try {
+      localStorage.setItem(NAV_KEY, JSON.stringify([...next]))
+    } catch {
+      // Not remembered; fine.
+    }
+  }
+  const toggle = (key: string) => {
+    const n = new Set(collapsed)
+    if (n.has(key)) n.delete(key)
+    else n.add(key)
+    set(n)
+  }
+  return { collapsed, set, toggle }
+}
+
+/** A foldable sidebar heading ("Tags", "Folders"), optionally with the fold-all button. */
+function NavSection({ title, open, onToggle, extra }: { title: string; open: boolean; onToggle: () => void; extra?: ReactNode }) {
+  return (
+    <div className="mail-nav__section">
+      <button type="button" className="mail-nav__section-head" aria-expanded={open} onClick={onToggle}>
+        <Icon name={open ? 'keyboard_arrow_down' : 'chevron_right'} size={20} />
+        <span className="title-small">{title}</span>
+      </button>
+      {extra}
+    </div>
+  )
+}
 
 function FolderNav({ view }: { view: MailView }) {
   const { t } = useTranslation()
@@ -44,7 +84,18 @@ function FolderNav({ view }: { view: MailView }) {
   // Gmail labels are shown as tags, so only Outlook accounts list folders here.
   const accountFolders = useAllFolders().filter((x) => x.account.provider !== 'google')
   const tags = useAllTags()
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const { collapsed, set: setCollapsed, toggle } = useNavCollapsed()
+  const groups = [...(tags.length ? ['tags'] : []), ...(accountFolders.length ? ['folders', ...accountFolders.map((x) => x.account.id)] : [])]
+  const allFolded = groups.length > 0 && groups.every((k) => collapsed.has(k))
+  const foldAll = groups.length > 1 && (
+    <IconButton
+      icon={allFolded ? 'unfold_more' : 'unfold_less'}
+      label={allFolded ? t('mail.expandAll') : t('mail.collapseAll')}
+      onClick={() => setCollapsed(allFolded ? new Set([...collapsed].filter((k) => !groups.includes(k))) : new Set([...collapsed, ...groups]))}
+    />
+  )
+  const tagsOpen = !collapsed.has('tags')
+  const foldersOpen = !collapsed.has('folders')
   return (
     <nav className="mail-nav" aria-label={t('mail.folders')}>
       <button type="button" className="fab" onClick={() => openNew()}>
@@ -67,8 +118,8 @@ function FolderNav({ view }: { view: MailView }) {
       </ul>
       {tags.length > 0 && (
         <>
-          <h2 className="title-small mail-nav__heading">{t('tags.heading')}</h2>
-          <ul>
+          <NavSection title={t('tags.heading')} open={tagsOpen} onToggle={() => toggle('tags')} extra={foldAll} />
+          {tagsOpen && <ul>
             {tags.map((tag) => {
               const v: MailView = { kind: 'tag', name: tag.name }
               const active = sameView(v, view)
@@ -83,11 +134,13 @@ function FolderNav({ view }: { view: MailView }) {
                 </li>
               )
             })}
-          </ul>
+          </ul>}
         </>
       )}
-      {accountFolders.length > 0 && <h2 className="title-small mail-nav__heading">{t('mail.myFolders')}</h2>}
-      {accountFolders.map(({ account, folders, error, isPending }) => {
+      {accountFolders.length > 0 && (
+        <NavSection title={t('mail.myFolders')} open={foldersOpen} onToggle={() => toggle('folders')} extra={!tags.length && foldAll} />
+      )}
+      {foldersOpen && accountFolders.map(({ account, folders, error, isPending }) => {
         const open = !collapsed.has(account.id)
         return (
           <div key={account.id} className="mail-nav__account">
@@ -96,14 +149,7 @@ function FolderNav({ view }: { view: MailView }) {
               className="mail-nav__account-head"
               aria-expanded={open}
               title={open ? t('mail.hideFolders', { account: account.email }) : t('mail.showFolders', { account: account.email })}
-              onClick={() =>
-                setCollapsed((s) => {
-                  const n = new Set(s)
-                  if (n.has(account.id)) n.delete(account.id)
-                  else n.add(account.id)
-                  return n
-                })
-              }
+              onClick={() => toggle(account.id)}
             >
               <Icon name={open ? 'keyboard_arrow_down' : 'chevron_right'} size={20} />
               <span className="chip__dot" style={{ background: account.color }} />

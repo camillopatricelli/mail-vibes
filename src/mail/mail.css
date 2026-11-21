@@ -266,6 +266,10 @@
 
 /* ---------- Own folders in the navigation ---------- */
 .mail-nav__heading { margin: 20px 16px 4px; color: var(--md-sys-color-on-surface-variant); }
+.mail-nav__section { display: flex; align-items: center; gap: 4px; margin-top: 16px; }
+.mail-nav__section-head { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; height: 36px; padding: 0 12px 0 8px; border: 0; border-radius: var(--md-sys-shape-full); background: none; cursor: pointer; color: var(--md-sys-color-on-surface-variant); text-align: left; }
+.mail-nav__section-head:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent); }
+.mail-nav__section + ul { margin-top: 0; }
 .mail-nav__account { margin-top: 4px; }
 .mail-nav__account ul { margin-top: 0; }
 .mail-nav__account-head { display: flex; align-items: center; gap: 8px; width: 100%; height: 36px; padding: 0 12px 0 8px; border: 0; border-radius: var(--md-sys-shape-full); background: none; cursor: pointer; color: var(--md-sys-color-on-surface-variant); text-align: left; }

@@ -96,6 +96,8 @@ const en = {
     chooseTenant: 'Choose your organisation',
     noTenants: 'No Microsoft 365 organisation is set up yet. Add one below (or open the setup link from your administrator).',
     accountName: 'Display name',
+    accountLabel: 'Name in the app',
+    senderName: 'Your name on sent mail',
     tenants: 'Microsoft 365 organisations',
     tenantsHint:
       'Each organisation is a separate Microsoft Entra app registration. Built-in organisations come with the app; you can rename them, or add your own.',
@@ -198,6 +200,8 @@ const en = {
     foldersFailed: 'Could not load folders: {{reason}}',
     showFolders: 'Show folders of {{account}}',
     hideFolders: 'Hide folders of {{account}}',
+    collapseAll: 'Collapse all tags and folders',
+    expandAll: 'Expand all tags and folders',
     inFolder: '{{folder}} · {{account}}',
     deletedForever_one: 'Conversation deleted forever.',
     deletedForever_other: '{{count}} conversations deleted forever.',

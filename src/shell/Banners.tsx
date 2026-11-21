@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSettings } from '../settings/store'
+import { accountLongLabel, useSettings } from '../settings/store'
 import { useStatus, type Banner } from '../status/store'
 import { Button, Icon, IconButton } from '../ui/components'
 import { dismissNotifyReminder, NOTIFY_REMINDER_ID } from './reminders'
@@ -45,7 +45,7 @@ export function Banners() {
   const accountBanners: Banner[] = accounts.flatMap((a) => {
     const err = status[a.id]?.error
     if (!err) return []
-    const name = a.displayName ? `${a.displayName} (${a.email})` : a.email
+    const name = accountLongLabel(a)
     const reauth = reauthHandlers[a.provider]
     return [
       {

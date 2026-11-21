@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { appInfo } from '../config'
 import { href, navigate, useLocation, type Route } from '../lib/router'
 import { timeAgo, useNow } from '../lib/time'
-import { useSettings } from '../settings/store'
+import { accountLabel, useSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 import { FilterChip, Icon, IconButton, type IconName } from '../ui/components'
 import { Banners, Toasts } from './Banners'
@@ -154,7 +154,7 @@ function AccountFilters() {
             onToggle={() => updateAccount(a.id, { visible: !a.visible })}
             title={`${a.email} — ${stateText}`}
           >
-            {a.displayName || a.email}
+            {accountLabel(a)}
             {st?.error && <Icon name="error" size={16} className="chip__error" label={stateText} />}
           </FilterChip>
         )

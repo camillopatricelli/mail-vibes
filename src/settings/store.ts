@@ -19,7 +19,10 @@ export interface AccountSettings {
   id: string
   provider: Provider
   email: string
+  /** The account holder's name (Gmail sends mail with it) */
   displayName: string
+  /** Short name shown in the app (account chips, badges, menus); falls back to displayName */
+  label?: string
   color: string
   /** Microsoft only: key of the organisation (built-in in src/config.ts, or user-added) */
   tenantKey?: string
@@ -64,6 +67,15 @@ export interface Settings {
   notifyEvents: boolean
   /** How many minutes before an event the reminder appears */
   notifyEventMinutes: number
+}
+
+/** How an account is named in the app: its short name, else the holder's name, else the address. */
+export const accountLabel = (a: Pick<AccountSettings, 'label' | 'displayName' | 'email'>) => a.label || a.displayName || a.email
+
+/** The account name followed by its address, e.g. "Work (me@example.com)". */
+export function accountLongLabel(a: Pick<AccountSettings, 'label' | 'displayName' | 'email'>) {
+  const name = accountLabel(a)
+  return name === a.email ? a.email : `${name} (${a.email})`
 }
 
 export const eventReminderOptions = [0, 5, 10, 15, 30, 60]
@@ -250,6 +262,7 @@ export function parseSettingsJson(text: string): Settings {
         provider: a.provider,
         email: a.email,
         displayName: isStr(a.displayName) ? a.displayName : a.email,
+        label: isStr(a.label) && a.label.trim() ? a.label.trim() : undefined,
         color: a.color,
         tenantKey: isStr(a.tenantKey) ? a.tenantKey : undefined,
         visible: a.visible !== false,

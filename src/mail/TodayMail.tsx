@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { displayName, listDate } from '../lib/format'
 import { href } from '../lib/router'
-import { useSettings } from '../settings/store'
+import { accountLabel, useSettings } from '../settings/store'
 import { AccountBadge } from '../ui/components'
 import { Spinner } from '../ui/overlay'
 import { useMergedFolder } from './data'
@@ -31,7 +31,7 @@ export function TodayMail() {
               <li key={th.key} style={{ borderLeftColor: a?.color }}>
                 <a href={href('mail', 'inbox', 't', th.accountId, th.threadId)}>
                   <span className="today-list__top">
-                    {a && <AccountBadge color={a.color} label={a.displayName || a.email} size={16} />}
+                    {a && <AccountBadge color={a.color} label={accountLabel(a)} size={16} />}
                     <span className="title-small">{th.participants.map(displayName).join(', ')}</span>
                     <span className="body-small muted">{listDate(th.date)}</span>
                   </span>

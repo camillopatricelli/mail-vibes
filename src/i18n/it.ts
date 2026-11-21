@@ -98,6 +98,8 @@ const it: Messages = {
     chooseTenant: 'Scegli la tua organizzazione',
     noTenants: "Non è ancora configurata nessuna organizzazione Microsoft 365. Aggiungine una qui sotto (o apri il link di configurazione dell'amministratore).",
     accountName: 'Nome visualizzato',
+    accountLabel: "Nome nell'app",
+    senderName: 'Il tuo nome nella posta inviata',
     tenants: 'Organizzazioni Microsoft 365',
     tenantsHint:
       "Ogni organizzazione è una registrazione app Microsoft Entra separata. Le organizzazioni predefinite sono incluse nell'app; puoi rinominarle o aggiungerne di tue.",
@@ -201,6 +203,8 @@ const it: Messages = {
     foldersFailed: 'Impossibile caricare le cartelle: {{reason}}',
     showFolders: 'Mostra le cartelle di {{account}}',
     hideFolders: 'Nascondi le cartelle di {{account}}',
+    collapseAll: 'Comprimi tutte le etichette e le cartelle',
+    expandAll: 'Espandi tutte le etichette e le cartelle',
     inFolder: '{{folder}} · {{account}}',
     deletedForever_one: 'Conversazione eliminata definitivamente.',
     deletedForever_other: '{{count}} conversazioni eliminate definitivamente.',
