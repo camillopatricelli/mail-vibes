@@ -13,7 +13,10 @@ export interface Location {
   params: string[]
 }
 
+const inBrowser = typeof window !== 'undefined'
+
 function parse(): Location {
+  if (!inBrowser) return { route: null, params: [] }
   const [first, ...rest] = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean)
   const route = routes.includes(first as Route) ? (first as Route) : null
   return { route, params: rest.map(decodeURIComponent) }
@@ -21,10 +24,11 @@ function parse(): Location {
 
 let current = parse()
 const listeners = new Set<() => void>()
-window.addEventListener('hashchange', () => {
-  current = parse()
-  listeners.forEach((l) => l())
-})
+if (inBrowser)
+  window.addEventListener('hashchange', () => {
+    current = parse()
+    listeners.forEach((l) => l())
+  })
 
 export function useLocation(): Location {
   return useSyncExternalStore(
