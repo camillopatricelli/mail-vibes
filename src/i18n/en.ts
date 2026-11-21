@@ -14,6 +14,8 @@ const en = {
     clear: 'Clear search',
   },
   accounts: {
+    googleNotConfigured: 'Google sign-in is not configured for this copy of the app.',
+    googleSignIn: 'Google sign-ins last one hour. Sign in again to continue (usually one click).',
     filterLabel: 'Show accounts',
     none: 'No accounts yet',
     addFirst: 'Add an account in Settings to get started.',
@@ -132,6 +134,7 @@ const en = {
     p5: 'You can revoke access at any time from your Google Account (Security → Third-party connections) or your Microsoft account.',
   },
   mail: {
+    gmailNoDeleteForever: 'Gmail messages cannot be deleted permanently from Mail Vibes (that would need full access to your mailbox). Gmail empties Trash and Spam automatically after 30 days.',
     folders: 'Folders',
     folder: { inbox: 'Inbox', starred: 'Starred', sent: 'Sent', drafts: 'Drafts', archive: 'Archive', trash: 'Bin', spam: 'Spam' },
     loading: 'Loading…',
@@ -205,6 +208,12 @@ const en = {
     openInbox: 'Open Inbox',
   },
   compose: {
+    gmailTooLarge: 'Gmail allows at most 25 MB of attachments per message.',
+    forwardHeader: '---------- Forwarded message ---------',
+    fieldFrom: 'From',
+    fieldDate: 'Date',
+    quoteHeader: 'On {{date}}, {{name}} wrote:',
+    draftGone: 'This draft no longer exists (it may have been sent or deleted elsewhere).',
     compose: 'Compose',
     newMessage: 'New message',
     from: 'From',

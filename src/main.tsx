@@ -53,6 +53,7 @@ async function start() {
 
   // Completes a full-page (redirect) sign-in, used in installed iOS apps.
   void handleRedirects()
+  void import('./auth/google').then((g) => g.preloadGoogle())
 }
 
 void start()

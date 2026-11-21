@@ -1,0 +1,146 @@
+import { AuthRequiredError } from '../auth/errors'
+import i18n from '../i18n'
+import { getGoogleToken, markGoogleTokenInvalid } from '../auth/google'
+import { useStatus } from '../status/store'
+import { ApiError, NetworkError, type GraphRequest } from './graph'
+
+/**
+ * Google REST client (Gmail, Calendar, Tasks, People). Like the Graph client, every call reports
+ * its outcome to the account's status, and errors are always re-thrown.
+ */
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+export async function google<T = unknown>(accountId: string, url: string, req: GraphRequest = {}): Promise<T> {
+  const status = useStatus.getState()
+  try {
+    for (let attempt = 0; ; attempt++) {
+      const token = getGoogleToken(accountId)
+      let res: Response
+      try {
+        const isJson = req.body !== undefined && !(req.body instanceof Blob) && typeof req.body !== 'string'
+        res = await fetch(url, {
+          method: req.method ?? 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(isJson ? { 'Content-Type': 'application/json' } : {}),
+            ...req.headers,
+          },
+          body: req.body === undefined ? undefined : isJson ? JSON.stringify(req.body) : (req.body as BodyInit),
+          signal: req.signal,
+        })
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') throw e
+        throw new NetworkError()
+      }
+      if (res.status === 401) {
+        markGoogleTokenInvalid(accountId)
+        throw new AuthRequiredError(i18n.t('accounts.googleSignIn'))
+      }
+      if ((res.status === 429 || res.status >= 500) && attempt < 3) {
+        const retryAfter = Number(res.headers.get('Retry-After')) || 2 ** attempt
+        await sleep(Math.min(retryAfter, 30) * 1000)
+        continue
+      }
+      if (res.status === 403 && attempt < 3) {
+        // Gmail reports rate limits as 403 with reason rateLimitExceeded/userRateLimitExceeded.
+        const text = await res.clone().text()
+        if (/rateLimitExceeded|userRateLimitExceeded/.test(text)) {
+          await sleep(2 ** attempt * 1000)
+          continue
+        }
+      }
+      if (!res.ok) {
+        let message = `${res.status} ${res.statusText}`
+        let code: string | undefined
+        try {
+          const j = (await res.json()) as { error?: { message?: string; status?: string } }
+          if (j.error?.message) message = j.error.message
+          code = j.error?.status
+        } catch {
+          /* non-JSON error body */
+        }
+        throw new ApiError(message, res.status, code)
+      }
+      if (!req.quiet) status.reportSuccess(accountId)
+      if (req.raw) return res as T
+      if (res.status === 204) return undefined as T
+      const text = await res.text()
+      return (text ? JSON.parse(text) : undefined) as T
+    }
+  } catch (e) {
+    if (!req.quiet && (e as Error).name !== 'AbortError') {
+      if (e instanceof AuthRequiredError) status.reportError(accountId, 'auth', e.message)
+      else if (e instanceof NetworkError) status.reportError(accountId, 'network', e.message)
+      else if (e instanceof ApiError && e.status >= 500) status.reportError(accountId, 'api', e.message)
+    }
+    throw e
+  }
+}
+
+export interface BatchPart<T> {
+  status: number
+  body: T | { error?: { message?: string } }
+}
+
+/**
+ * Google batch request (multipart/mixed): up to 100 GET/POST calls in one HTTP request.
+ * `paths` are relative to the API root, e.g. "/gmail/v1/users/me/messages/abc?format=metadata".
+ */
+export async function googleBatch<T>(
+  accountId: string,
+  endpoint: string,
+  calls: { method?: string; path: string; body?: unknown }[],
+): Promise<BatchPart<T>[]> {
+  const out: BatchPart<T>[] = []
+  for (let i = 0; i < calls.length; i += 100) {
+    const chunk = calls.slice(i, i + 100)
+    const boundary = `batch_${Math.random().toString(36).slice(2)}`
+    const body =
+      chunk
+        .map((c, j) => {
+          const payload = c.body === undefined ? '' : JSON.stringify(c.body)
+          return (
+            `--${boundary}\r\nContent-Type: application/http\r\nContent-ID: <item${j}>\r\n\r\n` +
+            `${c.method ?? 'GET'} ${c.path}\r\n` +
+            (payload ? `Content-Type: application/json\r\n\r\n${payload}\r\n` : '\r\n')
+          )
+        })
+        .join('') + `--${boundary}--`
+    const res = await google<Response>(accountId, endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': `multipart/mixed; boundary=${boundary}` },
+      body,
+      raw: true,
+    })
+    const text = await res.text()
+    const m = /boundary=("?)([^";]+)\1/i.exec(res.headers.get('Content-Type') ?? '')
+    if (!m) throw new ApiError('Malformed batch response', 500)
+    const parts = new Map<number, BatchPart<T>>()
+    for (const raw of text.split(`--${m[2]}`)) {
+      const id = /Content-ID:\s*<response-item(\d+)>/i.exec(raw)
+      const statusLine = /HTTP\/[\d.]+\s+(\d{3})/.exec(raw)
+      if (!id || !statusLine) continue
+      const jsonStart = raw.indexOf('{')
+      let parsed: unknown = {}
+      if (jsonStart >= 0) {
+        try {
+          parsed = JSON.parse(raw.slice(jsonStart, raw.lastIndexOf('}') + 1))
+        } catch {
+          parsed = {}
+        }
+      }
+      parts.set(Number(id[1]), { status: Number(statusLine[1]), body: parsed as T })
+    }
+    chunk.forEach((_, j) => out.push(parts.get(j) ?? { status: 500, body: { error: { message: 'Missing batch response' } } }))
+  }
+  return out
+}
+
+/** Throws if any part of a batch failed (with a short summary). */
+export function assertBatchOk(parts: BatchPart<unknown>[]) {
+  const failed = parts.filter((p) => p.status >= 400)
+  if (!failed.length) return
+  const first = (failed[0].body as { error?: { message?: string } }).error?.message ?? `HTTP ${failed[0].status}`
+  throw new ApiError(failed.length === parts.length ? first : `${failed.length} of ${parts.length} failed: ${first}`, failed[0].status)
+}

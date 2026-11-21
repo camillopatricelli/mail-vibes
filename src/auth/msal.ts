@@ -8,6 +8,7 @@ import {
 import { selectTenants, useSettings, type Tenant } from '../settings/store'
 import { useStatus } from '../status/store'
 import { isIos, isStandalone } from '../shell/reminders'
+import { AuthRequiredError } from './errors'
 
 /**
  * Microsoft sign-in. One MSAL client per organisation (each is a separate Entra app registration).
@@ -24,12 +25,7 @@ export const GRAPH_SCOPES = [
   'Contacts.ReadWrite',
 ]
 
-export class AuthRequiredError extends Error {
-  constructor(message = 'Sign-in required') {
-    super(message)
-    this.name = 'AuthRequiredError'
-  }
-}
+export { AuthRequiredError }
 
 /** The registered redirect URI: the app's root (no trailing slash at the domain root). */
 export function redirectUri() {

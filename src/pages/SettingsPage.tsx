@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { appInfo } from '../config'
 import { href } from '../lib/router'
@@ -20,7 +20,8 @@ import {
 import { useStatus } from '../status/store'
 import { AccountBadge, Button, Card, IconButton } from '../ui/components'
 import { Dialog } from '../ui/overlay'
-import { addMicrosoft, removeAccount } from '../auth/accounts'
+import { addGoogle, addMicrosoft, removeAccount } from '../auth/accounts'
+import { googleConfigured, preloadGoogle } from '../auth/google'
 
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -313,6 +314,8 @@ export function SettingsPage() {
   const s = useSettings()
   const toast = useStatus((x) => x.toast)
   const fileInput = useRef<HTMLInputElement>(null)
+  // Loaded ahead of the click so the Google sign-in popup is not blocked.
+  useEffect(() => preloadGoogle(true), [])
 
   const doExport = () => {
     const blob = new Blob([exportSettingsJson(s)], { type: 'application/json' })
@@ -345,7 +348,13 @@ export function SettingsPage() {
         ))}
         <div className="row-wrap">
           <AddMicrosoftButton />
-          <Button variant="tonal" icon="add" disabled title={t('settings.availableLater')}>
+          <Button
+            variant="tonal"
+            icon="add"
+            disabled={!googleConfigured()}
+            title={googleConfigured() ? undefined : t('accounts.googleNotConfigured')}
+            onClick={() => void addGoogle()}
+          >
             {t('settings.addGoogle')}
           </Button>
         </div>

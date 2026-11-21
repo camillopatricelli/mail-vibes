@@ -9,7 +9,7 @@ import { useStatus } from '../status/store'
 import { AccountBadge, Button, EmptyState, Icon, IconButton, type IconName } from '../ui/components'
 import { Dialog, Menu, Spinner } from '../ui/overlay'
 import { formatAddress } from './addressBook'
-import { providerFor } from './api'
+import { canDeleteForever, providerFor } from './api'
 import { AttachmentList } from './Attachments'
 import { openDraft, openNew, openReply } from './compose'
 import { mailActions, useAllFolders, useFolders, useMergedFolder, useThread, useUnreadCounts, type ThreadSummary } from './data'
@@ -335,6 +335,7 @@ function MailList({ view }: { view: MailView }) {
 
   const sel = threads.filter((th) => selected.has(th.key))
   const selItems = itemsOf(sel)
+  const deletable = selItems.filter((i) => canDeleteForever(i.accountId))
   const clear = () => setSelected(new Set())
   const allSelected = threads.length > 0 && sel.length === threads.length
 
@@ -371,13 +372,15 @@ function MailList({ view }: { view: MailView }) {
             {folder === 'trash' ? (
               <>
                 <IconButton icon="inbox" label={t('mail.restore')} onClick={() => void mailActions.moveToInbox(selItems, sel.length).then(clear)} />
-                <IconButton
-                  icon="delete"
-                  label={t('mail.deleteForever')}
-                  onClick={() => {
-                    if (confirm(t('mail.confirmDeleteForever', { count: sel.length }))) void mailActions.deleteForever(selItems, sel.length).then(clear)
-                  }}
-                />
+                {deletable.length > 0 && (
+                  <IconButton
+                    icon="delete"
+                    label={t('mail.deleteForever')}
+                    onClick={() => {
+                      if (confirm(t('mail.confirmDeleteForever', { count: sel.length }))) void mailActions.deleteForever(deletable, sel.length).then(clear)
+                    }}
+                  />
+                )}
               </>
             ) : (
               <IconButton icon="delete" label={t('mail.delete')} onClick={() => void mailActions.trash(selItems, sel.length).then(clear)} />
@@ -600,13 +603,15 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
         {notTrashed.length > 0 ? (
           <IconButton icon="delete" label={t('mail.delete')} onClick={() => void mailActions.trash(notTrashed, 1).then(back)} />
         ) : (
-          <IconButton
-            icon="delete"
-            label={t('mail.deleteForever')}
-            onClick={() => {
-              if (confirm(t('mail.confirmDeleteForever', { count: 1 }))) void mailActions.deleteForever(messages, 1).then(back)
-            }}
-          />
+          messages.some((m) => canDeleteForever(m.accountId)) && (
+            <IconButton
+              icon="delete"
+              label={t('mail.deleteForever')}
+              onClick={() => {
+                if (confirm(t('mail.confirmDeleteForever', { count: 1 }))) void mailActions.deleteForever(messages, 1).then(back)
+              }}
+            />
+          )
         )}
         {viewingTrash && (
           <IconButton icon="inbox" label={folder === 'spam' ? t('mail.notSpam') : t('mail.restore')} onClick={() => void mailActions.moveToInbox(messages, 1).then(back)} />

@@ -16,6 +16,8 @@ const it: Messages = {
     clear: 'Cancella ricerca',
   },
   accounts: {
+    googleNotConfigured: "L'accesso Google non è configurato in questa copia dell'app.",
+    googleSignIn: "Gli accessi Google durano un'ora. Accedi di nuovo per continuare (di solito basta un clic).",
     filterLabel: 'Mostra account',
     none: 'Ancora nessun account',
     addFirst: 'Aggiungi un account nelle Impostazioni per iniziare.',
@@ -135,6 +137,7 @@ const it: Messages = {
     p5: "Puoi revocare l'accesso in qualsiasi momento dal tuo Account Google (Sicurezza → Connessioni di terze parti) o dal tuo account Microsoft.",
   },
   mail: {
+    gmailNoDeleteForever: "I messaggi Gmail non possono essere eliminati definitivamente da Mail Vibes (servirebbe l'accesso completo alla casella). Gmail svuota automaticamente Cestino e Spam dopo 30 giorni.",
     folders: 'Cartelle',
     folder: { inbox: 'Posta in arrivo', starred: 'Speciali', sent: 'Inviata', drafts: 'Bozze', archive: 'Archivio', trash: 'Cestino', spam: 'Spam' },
     loading: 'Caricamento…',
@@ -208,6 +211,12 @@ const it: Messages = {
     openInbox: 'Apri Posta in arrivo',
   },
   compose: {
+    gmailTooLarge: 'Gmail consente al massimo 25 MB di allegati per messaggio.',
+    forwardHeader: '---------- Messaggio inoltrato ---------',
+    fieldFrom: 'Da',
+    fieldDate: 'Data',
+    quoteHeader: 'Il giorno {{date}} {{name}} ha scritto:',
+    draftGone: 'Questa bozza non esiste più (potrebbe essere stata inviata o eliminata altrove).',
     compose: 'Scrivi',
     newMessage: 'Nuovo messaggio',
     from: 'Da',

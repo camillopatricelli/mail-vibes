@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query'
-import { AuthRequiredError } from '../auth/msal'
+import { AuthRequiredError } from '../auth/errors'
 import { ApiError } from '../providers/graph'
 
 /**
