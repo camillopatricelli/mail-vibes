@@ -20,8 +20,6 @@ interface GTask {
   lastModifiedDateTime?: string
 }
 
-const FIELDS = 'id,title,body,dueDateTime,status,completedDateTime,importance,createdDateTime,lastModifiedDateTime'
-
 const utc = (dt: GDateTime | undefined) =>
   !dt ? undefined : Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(dt.dateTime) ? dt.dateTime : dt.dateTime + (dt.timeZone === 'UTC' ? 'Z' : ''))
 
@@ -62,10 +60,10 @@ function body(d: Partial<TaskDraft>) {
 
 const tasksUrl = (listId: string) => `/me/todo/lists/${encodeURIComponent(listId)}/tasks`
 
-async function all(accountId: string, listId: string, url: string): Promise<Task[]> {
+async function all(accountId: string, listId: string, url: string, maxPages = 50): Promise<Task[]> {
   const out: Task[] = []
   let next: string | undefined = url
-  while (next) {
+  for (let i = 0; next && i < maxPages; i++) {
     const page: GraphPage<GTask> = await graph<GraphPage<GTask>>(accountId, next)
     out.push(...page.value.map((t) => toTask(accountId, listId, t)))
     next = page['@odata.nextLink']
@@ -73,31 +71,52 @@ async function all(accountId: string, listId: string, url: string): Promise<Task
   return out
 }
 
+/**
+ * Tries each request in turn, moving on when Graph rejects the query options (400). Support for
+ * $top, $select and $filter on To Do varies between tenants, so the last option is always a
+ * plain request, filtered here instead.
+ */
+async function firstAccepted<T>(attempts: (() => Promise<T>)[]): Promise<T> {
+  let first: unknown
+  for (const attempt of attempts) {
+    try {
+      return await attempt()
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 400)) throw e
+      first ??= e
+    }
+  }
+  throw first
+}
+
 export const todo: TaskProvider = {
   async lists(accountId) {
     type GList = { id: string; displayName?: string; wellknownListName?: string }
-    const page = await graph<GraphPage<GList>>(accountId, '/me/todo/lists?$top=100')
-    return page.value
+    const lists: GList[] = []
+    let next: string | undefined = '/me/todo/lists'
+    while (next) {
+      const page: GraphPage<GList> = await graph<GraphPage<GList>>(accountId, next)
+      lists.push(...page.value)
+      next = page['@odata.nextLink']
+    }
+    return lists
       .filter((l) => l.wellknownListName !== 'flaggedEmails')
       .map((l): TaskList => ({ accountId, id: l.id, name: l.displayName || 'Tasks', isDefault: l.wellknownListName === 'defaultList' }))
   },
 
   async tasks(accountId, listId) {
-    const since = new Date(Date.now() - COMPLETED_DAYS * 86_400_000).toISOString()
-    const open = all(accountId, listId, `${tasksUrl(listId)}?$top=100&$select=${FIELDS}&$filter=status ne 'completed'`)
+    const base = tasksUrl(listId)
+    const since = Date.now() - COMPLETED_DAYS * 86_400_000
+    const recent = (t: Task) => !t.completed || (t.completedAt ?? t.updatedAt) >= since
+    const open = firstAccepted([
+      () => all(accountId, listId, `${base}?$filter=status ne 'completed'`),
+      () => all(accountId, listId, base).then((ts) => ts.filter((t) => !t.completed)),
+    ])
     // Recently completed tasks only (lists can hold years of completed tasks).
-    const done = all(
-      accountId,
-      listId,
-      `${tasksUrl(listId)}?$top=100&$select=${FIELDS}&$filter=status eq 'completed' and lastModifiedDateTime ge ${since}`,
-    ).catch(async (e) => {
-      // Some tenants reject the date filter: fall back to the most recent page.
-      if (e instanceof ApiError && e.status === 400) {
-        const page = await graph<GraphPage<GTask>>(accountId, `${tasksUrl(listId)}?$top=50&$select=${FIELDS}&$filter=status eq 'completed'`)
-        return page.value.map((t) => toTask(accountId, listId, t))
-      }
-      throw e
-    })
+    const done = firstAccepted([
+      () => all(accountId, listId, `${base}?$filter=status eq 'completed'`, 5),
+      () => all(accountId, listId, base, 20).then((ts) => ts.filter((t) => t.completed)),
+    ]).then((ts) => ts.filter(recent))
     return [...(await open), ...(await done)]
   },
 
