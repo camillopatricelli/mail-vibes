@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { loadContacts } from '../contacts/contacts'
+import { NotificationSettings } from '../notify/NotificationSettings'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { appInfo } from '../config'
@@ -389,6 +390,10 @@ export function SettingsPage() {
         <DefaultSelect label={t('settings.defaultContacts')} field="contactsAccountId" />
         <ContactsStatus />
         <DefaultSelect label={t('settings.defaultNotes')} field="notesAccountId" provider="google" />
+      </Section>
+
+      <Section title={t('notify.section')}>
+        <NotificationSettings Field={Field} />
       </Section>
 
       <Section title={t('settings.general')}>

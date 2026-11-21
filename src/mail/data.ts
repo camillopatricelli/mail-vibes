@@ -88,7 +88,14 @@ export function mailAccounts(accounts: AccountSettings[]) {
 
 const targetKey = (t: ListTarget) =>
   typeof t === 'string' ? t : 'tag' in t ? `tag:${t.tag.toLowerCase()}` : 'search' in t ? `search:${t.search}` : `folder:${t.folderId}`
-const listKey = (accountId: string, target: ListTarget, count: number) => ['mail', 'list', accountId, targetKey(target), count] as const
+export const listKey = (accountId: string, target: ListTarget, count: number) => ['mail', 'list', accountId, targetKey(target), count] as const
+
+/** Loads one page of a folder (and remembers its addresses for suggestions). */
+export async function fetchList(accountId: string, target: ListTarget, count: number) {
+  const r = await providerFor(accountId).list(accountId, target, count)
+  rememberAddresses(r.messages.flatMap((m) => [m.from, ...m.to]))
+  return r
+}
 
 /**
  * Merged, threaded list of one folder across all visible accounts.
@@ -115,11 +122,7 @@ export function useMergedFolder(folder: ListTarget, onlyAccountId?: string) {
       const count = counts[a.id] ?? PAGE_SIZE
       return {
         queryKey: listKey(a.id, folder, count),
-        queryFn: async () => {
-          const r = await providerFor(a.id).list(a.id, folder, count)
-          rememberAddresses(r.messages.flatMap((m) => [m.from, ...m.to]))
-          return r
-        },
+        queryFn: () => fetchList(a.id, folder, count),
         refetchInterval: pollSec * 1000,
         refetchIntervalInBackground: true,
         placeholderData: keepPreviousData,

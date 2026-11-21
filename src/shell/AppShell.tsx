@@ -10,6 +10,7 @@ import { Banners, Toasts } from './Banners'
 import { ComposerStack } from '../mail/Composer'
 import { useNotifyReminder } from './reminders'
 import { useContactsSync } from '../contacts/contacts'
+import { useEventNotifier, useMailNotifier, useUnreadBadge } from '../notify/useNotifiers'
 
 const sections: { route: Route; icon: IconName; key: string }[] = [
   { route: 'today', icon: 'today', key: 'nav.today' },
@@ -166,6 +167,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { route } = useLocation()
   useNotifyReminder()
   useContactsSync()
+  useMailNotifier()
+  useEventNotifier()
+  useUnreadBadge()
   const showFilters = route !== 'settings' && route !== 'privacy' && route !== 'setup'
   return (
     <div className="shell">

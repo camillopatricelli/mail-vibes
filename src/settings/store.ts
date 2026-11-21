@@ -58,7 +58,15 @@ export interface Settings {
   hiddenTaskLists: string[]
   /** Timestamp the "notifications only while open" reminder was last dismissed */
   notifyReminderDismissedAt?: number
+  /** Notify about new mail in the inbox (while the app is open) */
+  notifyMail: boolean
+  /** Remind of events before they start (while the app is open) */
+  notifyEvents: boolean
+  /** How many minutes before an event the reminder appears */
+  notifyEventMinutes: number
 }
+
+export const eventReminderOptions = [0, 5, 10, 15, 30, 60]
 
 export const SETTINGS_FORMAT = 'mail-vibes-settings'
 export const SETTINGS_VERSION = 1
@@ -92,6 +100,9 @@ export const defaultSettings: Settings = {
   tenantNames: {},
   hiddenCalendars: [],
   hiddenTaskLists: [],
+  notifyMail: true,
+  notifyEvents: true,
+  notifyEventMinutes: 10,
 }
 
 interface SettingsActions {
@@ -178,6 +189,9 @@ export function pickSettings(s: Settings): Settings {
     hiddenCalendars: s.hiddenCalendars ?? [],
     hiddenTaskLists: s.hiddenTaskLists ?? [],
     notifyReminderDismissedAt: s.notifyReminderDismissedAt,
+    notifyMail: s.notifyMail ?? true,
+    notifyEvents: s.notifyEvents ?? true,
+    notifyEventMinutes: s.notifyEventMinutes ?? 10,
   }
 }
 
@@ -217,6 +231,9 @@ export function parseSettingsJson(text: string): Settings {
     out.pollIntervalSec = Math.round(s.pollIntervalSec)
 
   if (s.markRead === 'never' || s.markRead === 'open' || s.markRead === 'delay') out.markRead = s.markRead
+  if (typeof s.notifyMail === 'boolean') out.notifyMail = s.notifyMail
+  if (typeof s.notifyEvents === 'boolean') out.notifyEvents = s.notifyEvents
+  if (typeof s.notifyEventMinutes === 'number' && eventReminderOptions.includes(s.notifyEventMinutes)) out.notifyEventMinutes = s.notifyEventMinutes
 
   if (Array.isArray(s.accounts)) {
     out.accounts = s.accounts

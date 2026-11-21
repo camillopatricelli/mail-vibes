@@ -1,0 +1,22 @@
+{
+  "name": "Mail Vibes",
+  "short_name": "Mail Vibes",
+  "description": "Mail, calendar and tasks from your Google and Microsoft 365 accounts in one place.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f8f9ff",
+  "theme_color": "#3b5ba9",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Mail", "url": "./#/mail" },
+    { "name": "Calendar", "url": "./#/calendar" },
+    { "name": "Tasks", "url": "./#/tasks" }
+  ]
+}

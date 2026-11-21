@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import i18n from '../i18n'
 import { useSettings } from '../settings/store'
 import { useStatus } from '../status/store'
+import { permission, requestPermission } from '../notify/notify'
 
 const REMIND_EVERY_MS = 7 * 24 * 3600_000 // weekly
 const LONG_ABSENCE_MS = 4 * 3600_000 // app regains focus after 4+ hours
@@ -24,7 +25,12 @@ function show() {
       body: t('banner.notifyReminderBody') + (ios ? ' ' + t('banner.notifyReminderIos') : ''),
     }
   }
-  useStatus.getState().showBanner({ id: BANNER_ID, tone: 'info', ...text(), text, dismissible: true })
+  // While notifications are not allowed yet, the reminder offers to turn them on.
+  const action =
+    permission() === 'default'
+      ? { label: i18n.t('notify.turnOn'), run: () => void requestPermission().then(() => useStatus.getState().dismissBanner(BANNER_ID)) }
+      : undefined
+  useStatus.getState().showBanner({ id: BANNER_ID, tone: 'info', ...text(), text, action, dismissible: true })
 }
 
 /** Dismissing the reminder records the time, so it comes back after a week. */
