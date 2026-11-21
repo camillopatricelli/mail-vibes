@@ -132,11 +132,23 @@ function AccountFilters() {
   const { t } = useTranslation()
   const accounts = useSettings((s) => s.accounts)
   const updateAccount = useSettings((s) => s.updateAccount)
+  const update = useSettings((s) => s.update)
   const status = useStatus((s) => s.accounts)
   const now = useNow()
   if (!accounts.length) return null
+  const allShown = accounts.every((a) => a.visible)
+  const showOnly = (id?: string) => update({ accounts: accounts.map((a) => ({ ...a, visible: id === undefined || a.id === id })) })
   return (
     <div className="account-filters" role="group" aria-label={t('accounts.filterLabel')}>
+      {accounts.length > 1 && (
+        <FilterChip
+          selected={allShown}
+          onToggle={() => (allShown ? update({ accounts: accounts.map((a) => ({ ...a, visible: false })) }) : showOnly())}
+          title={allShown ? t('accounts.hideAll') : t('accounts.showAll')}
+        >
+          {t('accounts.all')}
+        </FilterChip>
+      )}
       {accounts.map((a) => {
         const st = status[a.id]
         const stateText = st?.error
@@ -152,7 +164,8 @@ function AccountFilters() {
             selected={a.visible}
             color={a.color}
             onToggle={() => updateAccount(a.id, { visible: !a.visible })}
-            title={`${a.email} — ${stateText}`}
+            onDoubleClick={() => showOnly(a.id)}
+            title={`${a.email} — ${stateText}\n${t('accounts.onlyHint')}`}
           >
             {accountLabel(a)}
             {st?.error && <Icon name="error" size={16} className="chip__error" label={stateText} />}

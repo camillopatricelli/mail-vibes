@@ -81,12 +81,14 @@ export function FilterChip({
   children,
   color,
   title,
+  onDoubleClick,
 }: {
   selected: boolean
   onToggle: () => void
   children: ReactNode
   color?: string
   title?: string
+  onDoubleClick?: () => void
 }) {
   return (
     <button
@@ -96,6 +98,7 @@ export function FilterChip({
       title={title}
       className={['chip', selected && 'is-selected'].filter(Boolean).join(' ')}
       onClick={onToggle}
+      onDoubleClick={onDoubleClick}
     >
       {color && <span className="chip__dot" style={{ background: color, opacity: selected ? 1 : 0.35 }} />}
       {selected && !color && <Icon name="check" size={18} />}
