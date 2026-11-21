@@ -1,0 +1,417 @@
+import { useRef, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
+import { appInfo } from '../config'
+import { href } from '../lib/router'
+import { orgSetupUrl } from '../lib/setupLink'
+import { timeAgo, useNow } from '../lib/time'
+import {
+  accountPalette,
+  exportSettingsJson,
+  isGuid,
+  isTenantId,
+  selectTenants,
+  parseSettingsJson,
+  pollIntervalOptions,
+  useSettings,
+  type AccountSettings,
+  type Defaults,
+  type Provider,
+} from '../settings/store'
+import { useStatus } from '../status/store'
+import { AccountBadge, Button, Card, IconButton } from '../ui/components'
+
+/** Account actions are provided by the auth layer once it exists (phase 1+). */
+export const addAccountHandlers: Partial<Record<Provider, () => void>> = {}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="field">
+      <span className="field__label body-medium">{label}</span>
+      {children}
+    </label>
+  )
+}
+
+function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <Card className="settings__section">
+      <h2 className="title-medium">{title}</h2>
+      {hint && <p className="body-medium muted">{hint}</p>}
+      <div className="settings__body">{children}</div>
+    </Card>
+  )
+}
+
+function ColorPicker({ value, onChange, label }: { value: string; onChange: (c: string) => void; label: string }) {
+  return (
+    <div className="color-picker" role="radiogroup" aria-label={label}>
+      {accountPalette.map((c) => (
+        <button
+          key={c}
+          type="button"
+          role="radio"
+          aria-checked={value === c}
+          aria-label={c}
+          className={['swatch', value === c && 'is-selected'].filter(Boolean).join(' ')}
+          style={{ background: c }}
+          onClick={() => onChange(c)}
+        />
+      ))}
+      <input type="color" value={value} onChange={(e) => onChange(e.target.value)} aria-label={label} className="swatch swatch--custom" />
+    </div>
+  )
+}
+
+/** Text input that commits on blur / Enter, so typing doesn't write settings on every keystroke. */
+function InlineText({ value, onCommit, label, className }: { value: string; onCommit: (v: string) => void; label: string; className?: string }) {
+  const [draft, setDraft] = useState(value)
+  const [prev, setPrev] = useState(value)
+  if (prev !== value) {
+    setPrev(value)
+    setDraft(value)
+  }
+  return (
+    <input
+      className={['text-field', className].filter(Boolean).join(' ')}
+      value={draft}
+      aria-label={label}
+      title={label}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => draft !== value && onCommit(draft)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+        if (e.key === 'Escape') setDraft(value)
+      }}
+    />
+  )
+}
+
+function AccountRow({ a }: { a: AccountSettings }) {
+  const { t } = useTranslation()
+  const updateAccount = useSettings((s) => s.updateAccount)
+  const tenantName = useSettings((s) => selectTenants(s).find((x) => x.key === a.tenantKey)?.name)
+  const removeAccount = useSettings((s) => s.removeAccount)
+  const st = useStatus((s) => s.accounts[a.id])
+  const now = useNow()
+  const state = st?.error
+    ? st.error.kind === 'auth'
+      ? t('accounts.needsSignIn')
+      : `${t('accounts.error')}: ${st.error.message}`
+    : st?.lastSuccessAt
+      ? t('accounts.lastUpdated', { ago: timeAgo(st.lastSuccessAt, now) })
+      : t('accounts.neverUpdated')
+  return (
+    <div className="account-row" style={{ borderLeftColor: a.color }}>
+      <AccountBadge color={a.color} label={a.displayName || a.email} size={32} />
+      <div className="account-row__text">
+        <InlineText
+          className="title-small"
+          value={a.displayName}
+          label={`${t('settings.accountName')} — ${a.email}`}
+          onCommit={(displayName) => updateAccount(a.id, { displayName: displayName.trim() || a.email })}
+        />
+        <p className="body-small muted">
+          {a.email} · {a.provider === 'google' ? t('accounts.google') : tenantName ?? t('accounts.microsoft')} · {state}
+        </p>
+        <ColorPicker
+          value={a.color}
+          label={t('settings.accountColor', { account: a.email })}
+          onChange={(color) => updateAccount(a.id, { color })}
+        />
+      </div>
+      <IconButton icon="delete" label={`${t('settings.removeAccount')} ${a.email}`} onClick={() => removeAccount(a.id)} />
+    </div>
+  )
+}
+
+function TenantsSection() {
+  const { t } = useTranslation()
+  const customTenants = useSettings((s) => s.customTenants)
+  const tenantNames = useSettings((s) => s.tenantNames)
+  const tenants = selectTenants({ customTenants, tenantNames })
+  const accounts = useSettings((s) => s.accounts)
+  const renameTenant = useSettings((s) => s.renameTenant)
+  const removeTenant = useSettings((s) => s.removeTenant)
+  const addTenant = useSettings((s) => s.addTenant)
+  const toast = useStatus((s) => s.toast)
+  const [adding, setAdding] = useState(false)
+  const [form, setForm] = useState({ name: '', clientId: '', tenantId: '' })
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = () => {
+    const name = form.name.trim()
+    const clientId = form.clientId.trim().toLowerCase()
+    const tenantId = form.tenantId.trim().toLowerCase()
+    if (!name) return setError(t('settings.invalidName'))
+    if (!isGuid(clientId)) return setError(t('settings.invalidClientId'))
+    if (!isTenantId(tenantId)) return setError(t('settings.invalidTenantId'))
+    if (tenants.some((x) => x.clientId.toLowerCase() === clientId && x.tenantId.toLowerCase() === tenantId))
+      return setError(t('settings.duplicateTenant'))
+    addTenant({ name, clientId, tenantId })
+    setForm({ name: '', clientId: '', tenantId: '' })
+    setError(null)
+    setAdding(false)
+  }
+
+  return (
+    <Section title={t('settings.tenants')} hint={t('settings.tenantsHint')}>
+      {tenants.map((x) => {
+        const inUse = accounts.some((a) => a.tenantKey === x.key)
+        return (
+          <div key={x.key} className="tenant-row">
+            <div className="tenant-row__text">
+              <InlineText className="title-small" value={x.name} label={t('settings.tenantName')} onCommit={(v) => renameTenant(x.key, v)} />
+              <p className="body-small muted">
+                {x.builtIn && <>{t('settings.builtIn')} · </>}
+                {t('settings.clientId')}: <code>{x.clientId}</code> · {t('settings.tenantId')}: <code>{x.tenantId}</code>
+              </p>
+            </div>
+            <IconButton
+              icon="link"
+              label={t('setup.copyLink')}
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(orgSetupUrl(x))
+                  toast({ tone: 'success', message: t('setup.linkCopied') })
+                } catch {
+                  toast({ tone: 'error', message: t('setup.copyFailed') })
+                }
+              }}
+            />
+            {!x.builtIn && (
+              <IconButton
+                icon="delete"
+                label={inUse ? t('settings.tenantInUse') : `${t('settings.removeTenant')} ${x.name}`}
+                disabled={inUse}
+                onClick={() => removeTenant(x.key)}
+              />
+            )}
+          </div>
+        )
+      })}
+      {adding ? (
+        <div className="tenant-form">
+          <Field label={t('settings.tenantName')}>
+            <input className="text-field text-field--outlined" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          </Field>
+          <Field label={t('settings.clientId')}>
+            <input className="text-field text-field--outlined" value={form.clientId} spellCheck={false} onChange={(e) => setForm({ ...form, clientId: e.target.value })} />
+          </Field>
+          <Field label={t('settings.tenantId')}>
+            <input
+              className="text-field text-field--outlined"
+              value={form.tenantId}
+              spellCheck={false}
+              title={t('settings.tenantIdHint')}
+              placeholder={t('settings.tenantIdHint')}
+              onChange={(e) => setForm({ ...form, tenantId: e.target.value })}
+            />
+          </Field>
+          {error && (
+            <p className="body-small field-error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="row-wrap">
+            <Button variant="filled" onClick={submit}>
+              {t('settings.save')}
+            </Button>
+            <Button
+              variant="text"
+              onClick={() => {
+                setAdding(false)
+                setError(null)
+              }}
+            >
+              {t('settings.cancel')}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="row-wrap">
+          <Button variant="outlined" icon="add" onClick={() => setAdding(true)}>
+            {t('settings.addTenant')}
+          </Button>
+        </div>
+      )}
+    </Section>
+  )
+}
+
+function DefaultSelect({
+  label,
+  field,
+  provider,
+}: {
+  label: string
+  field: keyof Defaults
+  provider?: Provider
+}) {
+  const { t } = useTranslation()
+  const accounts = useSettings((s) => s.accounts).filter((a) => !provider || a.provider === provider)
+  const value = useSettings((s) => s.defaults[field])
+  const setDefaults = useSettings((s) => s.setDefaults)
+  return (
+    <Field label={label}>
+      <select className="select" value={value ?? ''} onChange={(e) => setDefaults({ [field]: e.target.value || undefined })}>
+        <option value="">{t('settings.noneSet')}</option>
+        {accounts.map((a) => (
+          <option key={a.id} value={a.id}>
+            {a.displayName ? `${a.displayName} (${a.email})` : a.email}
+          </option>
+        ))}
+      </select>
+    </Field>
+  )
+}
+
+export function SettingsPage() {
+  const { t } = useTranslation()
+  const s = useSettings()
+  const toast = useStatus((x) => x.toast)
+  const fileInput = useRef<HTMLInputElement>(null)
+
+  const doExport = () => {
+    const blob = new Blob([exportSettingsJson(s)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `mail-vibes-settings-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  const doImport = async (file: File) => {
+    try {
+      const parsed = parseSettingsJson(await file.text())
+      s.replaceAll(parsed)
+      toast({ tone: 'success', message: t('settings.importOk') })
+    } catch (e) {
+      toast({ tone: 'error', message: t('settings.importFailed', { reason: (e as Error).message }) })
+    }
+  }
+
+  return (
+    <div className="settings">
+      <h1 className="headline-small page-title">{t('settings.title')}</h1>
+
+      <Section title={t('settings.accounts')} hint={t('settings.accountsHint')}>
+        {s.accounts.length === 0 && <p className="body-medium muted">{t('accounts.none')}</p>}
+        {s.accounts.map((a) => (
+          <AccountRow key={a.id} a={a} />
+        ))}
+        <div className="row-wrap">
+          <Button
+            variant="tonal"
+            icon="add"
+            disabled={!addAccountHandlers.microsoft}
+            title={addAccountHandlers.microsoft ? undefined : t('settings.availableLater')}
+            onClick={() => addAccountHandlers.microsoft?.()}
+          >
+            {t('settings.addMicrosoft')}
+          </Button>
+          <Button
+            variant="tonal"
+            icon="add"
+            disabled={!addAccountHandlers.google}
+            title={addAccountHandlers.google ? undefined : t('settings.availableLater')}
+            onClick={() => addAccountHandlers.google?.()}
+          >
+            {t('settings.addGoogle')}
+          </Button>
+        </div>
+      </Section>
+
+      <TenantsSection />
+
+      <Section title={t('settings.defaults')}>
+        <DefaultSelect label={t('settings.defaultSend')} field="sendAccountId" />
+        <DefaultSelect label={t('settings.defaultTask')} field="taskAccountId" />
+        <DefaultSelect label={t('settings.defaultMeeting')} field="meetingAccountId" />
+        <DefaultSelect label={t('settings.defaultContacts')} field="contactsAccountId" />
+        <DefaultSelect label={t('settings.defaultNotes')} field="notesAccountId" provider="google" />
+      </Section>
+
+      <Section title={t('settings.general')}>
+        <Field label={t('settings.language')}>
+          <select className="select" value={s.language} onChange={(e) => s.update({ language: e.target.value as typeof s.language })}>
+            <option value="auto">{t('settings.languageAuto')}</option>
+            <option value="en">English</option>
+            <option value="it">Italiano</option>
+          </select>
+        </Field>
+        <Field label={t('settings.theme')}>
+          <select className="select" value={s.theme} onChange={(e) => s.update({ theme: e.target.value as typeof s.theme })}>
+            <option value="system">{t('settings.themeSystem')}</option>
+            <option value="light">{t('settings.themeLight')}</option>
+            <option value="dark">{t('settings.themeDark')}</option>
+          </select>
+        </Field>
+        <Field label={t('settings.accentColor')}>
+          <ColorPicker value={s.seedColor} label={t('settings.accentColor')} onChange={(seedColor) => s.update({ seedColor })} />
+        </Field>
+        <Field label={t('settings.homePage')}>
+          <select className="select" value={s.homePage} onChange={(e) => s.update({ homePage: e.target.value as typeof s.homePage })}>
+            {(['today', 'mail', 'calendar', 'tasks'] as const).map((p) => (
+              <option key={p} value={p}>
+                {t(`nav.${p}`)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label={t('settings.pollInterval')}>
+          <select className="select" value={s.pollIntervalSec} onChange={(e) => s.update({ pollIntervalSec: Number(e.target.value) })}>
+            {pollIntervalOptions.map((sec) => (
+              <option key={sec} value={sec}>
+                {sec < 60 ? t('settings.seconds', { count: sec }) : t('settings.minutes', { count: sec / 60 })}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </Section>
+
+      <Section title={t('settings.backup')} hint={t('settings.backupHint')}>
+        <div className="row-wrap">
+          <Button variant="outlined" icon="download" onClick={doExport}>
+            {t('settings.export')}
+          </Button>
+          <Button variant="outlined" icon="upload" onClick={() => fileInput.current?.click()}>
+            {t('settings.import')}
+          </Button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ''
+              if (f) void doImport(f)
+            }}
+          />
+          <Button
+            variant="text"
+            icon="refresh"
+            onClick={() => {
+              if (confirm(t('settings.resetConfirm'))) s.reset()
+            }}
+          >
+            {t('settings.reset')}
+          </Button>
+        </div>
+      </Section>
+
+      <Section title={t('settings.about')}>
+        <p className="body-medium">{t('settings.aboutBody')}</p>
+        <div className="row-wrap">
+          <a className="btn btn--text btn--with-icon" href={href('privacy')}>
+            {t('nav.privacy')}
+          </a>
+          <a className="btn btn--text btn--with-icon" href={appInfo.repoUrl} target="_blank" rel="noopener noreferrer">
+            {t('settings.sourceCode')}
+          </a>
+        </div>
+      </Section>
+    </div>
+  )
+}
