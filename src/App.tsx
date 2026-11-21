@@ -10,6 +10,7 @@ import { PrivacyPage, TodayPage } from './pages/SimplePages'
 import { SettingsPage } from './pages/SettingsPage'
 import { SetupPage } from './pages/SetupPage'
 import { useSettings } from './settings/store'
+import { useContactsVersion } from './mail/addressBook'
 import { AppShell } from './shell/AppShell'
 import { applyTheme } from './theme/theme'
 
@@ -40,6 +41,8 @@ export function App() {
   useThemeAndLanguage()
   const { route, params } = useLocation()
   const homePage = useSettings((s) => s.homePage)
+  // Names shown everywhere come from the contacts: re-render when they change.
+  useContactsVersion()
 
   useEffect(() => {
     if (!route) navigate(homePage)

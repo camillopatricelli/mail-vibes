@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { addContact, contactsAccount } from '../contacts/contacts'
+import { addContact, contactsAccount, openContact } from '../contacts/contacts'
 import { useStatus } from '../status/store'
 import { Menu } from '../ui/overlay'
-import { formatAddress, isContact } from './addressBook'
+import { contactOf, formatAddress } from './addressBook'
 import { openNew } from './compose'
 import type { Address } from './types'
 
@@ -11,7 +11,7 @@ import type { Address } from './types'
 export function AddressMenu({ address, children, className }: { address: Address; children: ReactNode; className?: string }) {
   const { t } = useTranslation()
   const target = contactsAccount()
-  const known = isContact(address.email)
+  const known = contactOf(address.email)
   return (
     <Menu
       label={address.email}
@@ -44,7 +44,7 @@ export function AddressMenu({ address, children, className }: { address: Address
             void navigator.clipboard.writeText(address.email).then(() => useStatus.getState().toast({ tone: 'success', message: t('contacts.copied') })),
         },
         known
-          ? { label: t('contacts.already'), icon: 'contacts', disabled: true, onSelect: () => undefined }
+          ? { label: t('contacts.open'), icon: 'contacts', disabled: !known.url, onSelect: () => openContact(address.email) }
           : { label: t('contacts.add', { account: target?.email ?? '' }), icon: 'person_add', disabled: !target, onSelect: () => void addContact(address) },
       ]}
     />

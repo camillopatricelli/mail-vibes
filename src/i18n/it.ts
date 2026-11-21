@@ -327,6 +327,7 @@ const it: Messages = {
     copied: 'Indirizzo copiato',
     add: 'Aggiungi ai contatti ({{account}})',
     already: 'Già nei tuoi contatti',
+    open: 'Apri contatto',
     added: '{{address}} aggiunto ai contatti di {{account}}',
     addFailed: 'Impossibile aggiungere il contatto: {{reason}}',
     loaded_one: '{{count}} contatto caricato da questo account',

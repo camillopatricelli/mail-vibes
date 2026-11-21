@@ -1,27 +1,57 @@
+import { useSyncExternalStore } from 'react'
 import type { Address } from './types'
+
+/** A contact: an address, plus where to open it in Google Contacts or Outlook. */
+export interface Contact extends Address {
+  url?: string
+}
 
 /**
  * Recipient suggestions: the contacts of every account first, then addresses seen in loaded
  * mail. In memory only, never persisted.
  */
 const book = new Map<string, Address>()
-const contactsByAccount = new Map<string, Address[]>()
-let contacts = new Map<string, Address>()
+const contactsByAccount = new Map<string, Contact[]>()
+let contacts = new Map<string, Contact>()
+let preferredAccount: string | undefined
 
-/** Replaces one account's contacts. */
-export function setContacts(accountId: string, list: Address[]) {
+// Components showing names re-render when the contacts change (see useContactsVersion).
+let version = 0
+const listeners = new Set<() => void>()
+
+/** Replaces one account's contacts. `preferred` (the default contacts account) wins on duplicates. */
+export function setContacts(accountId: string, list: Contact[], preferred?: string) {
   contactsByAccount.set(accountId, list)
-  const next = new Map<string, Address>()
-  for (const l of contactsByAccount.values())
-    for (const a of l) {
+  if (preferred !== undefined) preferredAccount = preferred
+  const next = new Map<string, Contact>()
+  const order = [...contactsByAccount.keys()].sort((a, b) => Number(b === preferredAccount) - Number(a === preferredAccount))
+  for (const id of order)
+    for (const a of contactsByAccount.get(id) ?? []) {
       const k = a.email.toLowerCase()
       const prev = next.get(k)
-      if (!prev || (!prev.name && a.name)) next.set(k, { name: a.name, email: a.email })
+      if (!prev) next.set(k, { name: a.name, email: a.email, url: a.url })
+      else if (!prev.name && a.name) next.set(k, { ...prev, name: a.name })
     }
   contacts = next
+  version++
+  listeners.forEach((l) => l())
 }
 
 export const isContact = (email: string) => contacts.has(email.toLowerCase())
+export const contactOf = (email: string): Contact | undefined => contacts.get(email.toLowerCase())
+/** The name saved in the user's contacts for this address, if any. */
+export const contactName = (email: string) => contacts.get(email.toLowerCase())?.name || undefined
+
+/** Subscribes a component to contact changes (names shown in the app follow the contacts). */
+export function useContactsVersion() {
+  return useSyncExternalStore(
+    (cb) => {
+      listeners.add(cb)
+      return () => listeners.delete(cb)
+    },
+    () => version,
+  )
+}
 
 export function rememberAddresses(list: Address[]) {
   for (const a of list) {

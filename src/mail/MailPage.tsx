@@ -8,7 +8,6 @@ import { useSettings, type AccountSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 import { AccountBadge, Button, EmptyState, Icon, IconButton, type IconName } from '../ui/components'
 import { Dialog, Menu, Spinner } from '../ui/overlay'
-import { formatAddress } from './addressBook'
 import { canDeleteForever, providerFor } from './api'
 import { AttachmentList } from './Attachments'
 import { openDraft, openNew, openReply } from './compose'
@@ -566,7 +565,7 @@ function MessageCard({ m, expanded, onToggle, account, onAddTask }: { m: MailMes
             {recipients.length
               ? recipients.map((a, i) => (
                   <span key={a.email + i}>
-                    <AddressMenu address={a}>{formatAddress(a)}</AddressMenu>
+                    <AddressMenu address={a}>{displayName(a)}</AddressMenu>
                     {i < recipients.length - 1 && ', '}
                   </span>
                 ))

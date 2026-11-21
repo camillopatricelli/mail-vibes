@@ -324,6 +324,7 @@ const en = {
     copied: 'Address copied',
     add: 'Add to contacts ({{account}})',
     already: 'In your contacts',
+    open: 'Open contact',
     added: '{{address}} added to the contacts of {{account}}',
     addFailed: 'Could not add the contact: {{reason}}',
     loaded_one: '{{count}} contact loaded from this account',

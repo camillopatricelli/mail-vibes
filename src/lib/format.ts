@@ -1,4 +1,5 @@
 import i18n from '../i18n'
+import { contactName } from '../mail/addressBook'
 import type { Address } from '../mail/types'
 
 const locale = () => (i18n.language === 'it' ? 'it-IT' : 'en-GB')
@@ -24,8 +25,9 @@ export function fullDate(ts: number) {
   })
 }
 
+/** The name to show for an address: from the user's contacts, else from the message, else the address. */
 export function displayName(a: Address) {
-  return a.name || a.email.split('@')[0] || a.email
+  return contactName(a.email) || a.name || a.email.split('@')[0] || a.email
 }
 
 export function fileSize(bytes: number) {
