@@ -6,6 +6,7 @@ import type {
   DraftRef,
   FolderKind,
   ListResult,
+  ListTarget,
   MailFolder,
   MailMessage,
   MailProvider,
@@ -115,6 +116,31 @@ function specialFolderIds(accountId: string) {
   return p
 }
 
+// System folders that are not shown as user folders (besides the well-known ones above).
+const HIDDEN_SYSTEM = ['outbox', 'conversationhistory', 'syncissues', 'scheduled', 'searchfolders', 'recoverableitemsdeletions']
+const hiddenCache = new Map<string, Promise<Set<string>>>()
+function hiddenFolderIds(accountId: string) {
+  let p = hiddenCache.get(accountId)
+  if (!p) {
+    p = (async () => {
+      const out = new Set<string>()
+      await Promise.all(
+        HIDDEN_SYSTEM.map(async (wk) => {
+          try {
+            const f = await graph<{ id: string }>(accountId, `/me/mailFolders/${wk}?$select=id`, { quiet: true })
+            out.add(f.id)
+          } catch {
+            // Not present in this mailbox (or not accessible): nothing to hide.
+          }
+        }),
+      )
+      return out
+    })()
+    hiddenCache.set(accountId, p)
+  }
+  return p
+}
+
 /** Runs up to 20 requests per Graph JSON batch; throws if any of them failed. */
 async function batch(accountId: string, requests: { method: string; url: string; body?: unknown }[]) {
   const failures: string[] = []
@@ -165,12 +191,12 @@ function toAttachment(a: GAttachment): Attachment {
 }
 
 export const outlook: MailProvider = {
-  async list(accountId, folder, count): Promise<ListResult> {
+  async list(accountId, target: ListTarget, count): Promise<ListResult> {
     const top = Math.min(count, 500)
     const path =
-      folder === 'starred'
+      target === 'starred'
         ? `/me/messages?$filter=receivedDateTime ge 1900-01-01T00:00:00Z and flag/flagStatus eq 'flagged'&$orderby=receivedDateTime desc`
-        : `/me/mailFolders/${wellKnown[folder]}/messages?$orderby=receivedDateTime desc`
+        : `/me/mailFolders/${typeof target === 'string' ? wellKnown[target] : encodeURIComponent(target.folderId)}/messages?$orderby=receivedDateTime desc`
     const page = await graph<GraphPage<GMessage>>(accountId, `${path}&$top=${top}&$select=${SUMMARY_FIELDS}`)
     return {
       messages: page.value.map((m) => toSummary(accountId, m)),
@@ -225,19 +251,21 @@ export const outlook: MailProvider = {
   },
 
   async folders(accountId) {
-    type GFolder = { id: string; displayName: string; childFolderCount?: number; childFolders?: GFolder[] }
-    const page = await graph<GraphPage<GFolder>>(
-      accountId,
-      `/me/mailFolders?$top=250&$select=id,displayName,childFolderCount&$expand=childFolders($select=id,displayName;$top=250)`,
-    )
+    type GFolder = { id: string; displayName: string; childFolderCount?: number; unreadItemCount?: number }
+    const [special, hidden] = await Promise.all([specialFolderIds(accountId), hiddenFolderIds(accountId)])
     const out: MailFolder[] = []
-    const walk = (fs: GFolder[], depth: number) => {
-      for (const f of fs) {
-        out.push({ id: f.id, name: f.displayName, depth })
-        if (f.childFolders?.length) walk(f.childFolders, depth + 1)
+    // Walks the whole tree. Sub-folders of system folders (e.g. Inbox > Projects) are shown with
+    // the parent's name as a prefix; the system folders themselves are not listed.
+    const walk = async (path: string, depth: number, prefix: string) => {
+      const page = await graph<GraphPage<GFolder>>(accountId, `${path}?$top=250&$select=id,displayName,childFolderCount,unreadItemCount`)
+      for (const f of page.value) {
+        const system = special.has(f.id) || hidden.has(f.id)
+        if (!system) out.push({ id: f.id, name: prefix + f.displayName, depth, unread: f.unreadItemCount ?? 0 })
+        if (f.childFolderCount)
+          await walk(`/me/mailFolders/${encodeURIComponent(f.id)}/childFolders`, system ? depth : depth + 1, system && !hidden.has(f.id) ? `${f.displayName} › ` : '')
       }
     }
-    walk(page.value, 0)
+    await walk('/me/mailFolders', 0, '')
     return out
   },
 

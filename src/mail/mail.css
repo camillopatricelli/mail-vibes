@@ -252,3 +252,17 @@
 .today-list__top { display: flex; align-items: center; gap: 6px; }
 .today-list__top .title-small { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .today-list__subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Own folders in the navigation ---------- */
+.mail-nav__heading { margin: 20px 16px 4px; color: var(--md-sys-color-on-surface-variant); }
+.mail-nav__account { margin-top: 4px; }
+.mail-nav__account ul { margin-top: 0; }
+.mail-nav__account-head { display: flex; align-items: center; gap: 8px; width: 100%; height: 36px; padding: 0 12px 0 8px; border: 0; border-radius: var(--md-sys-shape-full); background: none; cursor: pointer; color: var(--md-sys-color-on-surface-variant); text-align: left; }
+.mail-nav__account-head:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent); }
+.mail-nav__account-name, .mail-nav__folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mail-nav__item--folder { height: 32px; gap: 12px; }
+.mail-nav__note { margin: 4px 16px 4px 44px; }
+.mail-nav { overflow-y: auto; max-height: calc(100vh - var(--top-bar-height) - 16px); position: sticky; top: 0; }
+.custom-folder-title { display: flex; align-items: center; gap: 10px; margin: 8px 12px 4px; }
+.folder-list__note { padding: 8px 24px; }
+.message.is-unread .message__from-name, .message.is-unread .message__who .title-small { font-weight: 700; }

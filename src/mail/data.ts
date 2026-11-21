@@ -6,7 +6,7 @@ import { useSettings, type AccountSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 import { isMailCapable, providerFor } from './api'
 import { rememberAddresses } from './addressBook'
-import type { Address, FolderKind, ListResult, MailMessage, MailSummary } from './types'
+import type { Address, FolderKind, ListResult, ListTarget, MailMessage, MailSummary } from './types'
 
 export const PAGE_SIZE = 40
 
@@ -72,7 +72,8 @@ export function mailAccounts(accounts: AccountSettings[]) {
   return accounts.filter((a) => a.visible && isMailCapable(a.id))
 }
 
-const listKey = (accountId: string, folder: FolderKind, count: number) => ['mail', 'list', accountId, folder, count] as const
+const targetKey = (t: ListTarget) => (typeof t === 'string' ? t : `folder:${t.folderId}`)
+const listKey = (accountId: string, target: ListTarget, count: number) => ['mail', 'list', accountId, targetKey(target), count] as const
 
 /**
  * Merged, threaded list of one folder across all visible accounts.
@@ -81,13 +82,16 @@ const listKey = (accountId: string, folder: FolderKind, count: number) => ['mail
  * account that still has more to load are shown — otherwise an account with older mail could
  * appear "complete" while another account's messages from the same period are not loaded yet.
  */
-export function useMergedFolder(folder: FolderKind) {
-  const accounts = mailAccounts(useSettings((s) => s.accounts))
+export function useMergedFolder(folder: ListTarget, onlyAccountId?: string) {
+  const allAccounts = useSettings((s) => s.accounts)
+  // A user folder belongs to one account and is shown even if that account is filtered out.
+  const accounts = onlyAccountId ? allAccounts.filter((a) => a.id === onlyAccountId && isMailCapable(a.id)) : mailAccounts(allAccounts)
   const pollSec = useSettings((s) => s.pollIntervalSec)
   const [counts, setCounts] = useState<Record<string, number>>({})
-  const [countsFolder, setCountsFolder] = useState(folder)
-  if (countsFolder !== folder) {
-    setCountsFolder(folder)
+  const key = targetKey(folder)
+  const [countsFolder, setCountsFolder] = useState(key)
+  if (countsFolder !== key) {
+    setCountsFolder(key)
     setCounts({})
   }
 
@@ -176,12 +180,36 @@ export function useThread(accountId: string | undefined, threadId: string | unde
 }
 
 export function useFolders(accountId: string | undefined) {
+  const pollSec = useSettings((s) => s.pollIntervalSec)
   return useQuery({
     queryKey: ['mail', 'folders', accountId],
     enabled: !!accountId,
-    staleTime: 5 * 60_000,
+    staleTime: 30_000,
+    refetchInterval: pollSec * 1000,
+    refetchIntervalInBackground: true,
     queryFn: () => providerFor(accountId!).folders(accountId!),
   })
+}
+
+/** Own folders of every mail account (for the navigation and the mobile folder picker). */
+export function useAllFolders() {
+  const accounts = useSettings((s) => s.accounts).filter((a) => isMailCapable(a.id))
+  const pollSec = useSettings((s) => s.pollIntervalSec)
+  const results = useQueries({
+    queries: accounts.map((a) => ({
+      queryKey: ['mail', 'folders', a.id],
+      queryFn: () => providerFor(a.id).folders(a.id),
+      staleTime: 30_000,
+      refetchInterval: pollSec * 1000,
+      refetchIntervalInBackground: true,
+    })),
+  })
+  return accounts.map((account, i) => ({
+    account,
+    folders: results[i]?.data,
+    error: results[i]?.error as Error | null,
+    isPending: results[i]?.isPending ?? true,
+  }))
 }
 
 // ---------- Actions ----------
@@ -211,6 +239,7 @@ function syncAfter(accountId: string) {
   void queryClient.invalidateQueries({ queryKey: ['mail', 'list', accountId] })
   void queryClient.invalidateQueries({ queryKey: ['mail', 'thread', accountId] })
   void queryClient.invalidateQueries({ queryKey: ['mail', 'unread', accountId] })
+  void queryClient.invalidateQueries({ queryKey: ['mail', 'folders', accountId] })
 }
 
 function groupByAccount(items: { accountId: string; id: string }[]) {
@@ -263,8 +292,8 @@ export const mailActions = {
     run(items, 'remove', (a, ids) => providerFor(a).move(a, ids, 'trash'), i18n.t('mail.trashed', { count })),
   moveToInbox: (items: Item[], count = items.length) =>
     run(items, 'remove', (a, ids) => providerFor(a).move(a, ids, 'inbox'), i18n.t('mail.movedToInbox', { count })),
-  moveToFolder: (items: Item[], folderId: string, folderName: string) =>
-    run(items, 'remove', (a, ids) => providerFor(a).move(a, ids, { folderId }), i18n.t('mail.moved', { folder: folderName })),
+  moveTo: (items: Item[], dest: ListTarget, folderName: string) =>
+    run(items, 'remove', (a, ids) => providerFor(a).move(a, ids, dest), i18n.t('mail.moved', { folder: folderName })),
   deleteForever: (items: Item[], count = items.length) =>
     run(items, 'remove', (a, ids) => providerFor(a).deleteForever(a, ids), i18n.t('mail.deletedForever', { count })),
 }

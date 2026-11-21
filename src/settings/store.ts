@@ -11,6 +11,8 @@ import { microsoftTenants, type MicrosoftTenantConfig } from '../config'
 export type Provider = 'google' | 'microsoft'
 export type Section = 'today' | 'mail' | 'calendar' | 'tasks'
 export type ThemePref = 'system' | 'light' | 'dark'
+/** When opened mail is marked as read: never automatically, on open, or after a few seconds */
+export type MarkReadPref = 'never' | 'open' | 'delay'
 
 export interface AccountSettings {
   /** Stable id: `${provider}:${providerAccountId}` */
@@ -39,6 +41,7 @@ export interface Settings {
   seedColor: string
   homePage: Section
   pollIntervalSec: number
+  markRead: MarkReadPref
   accounts: AccountSettings[]
   defaults: Defaults
   /** Senders whose remote images are always shown */
@@ -75,6 +78,7 @@ export const defaultSettings: Settings = {
   seedColor: '#3b5ba9',
   homePage: 'today',
   pollIntervalSec: 60,
+  markRead: 'never',
   accounts: [],
   defaults: {},
   imagesAllowedFrom: [],
@@ -152,6 +156,7 @@ export function pickSettings(s: Settings): Settings {
     seedColor: s.seedColor,
     homePage: s.homePage,
     pollIntervalSec: s.pollIntervalSec,
+    markRead: s.markRead,
     accounts: s.accounts,
     defaults: s.defaults,
     imagesAllowedFrom: s.imagesAllowedFrom,
@@ -195,6 +200,8 @@ export function parseSettingsJson(text: string): Settings {
   if (s.homePage && ['today', 'mail', 'calendar', 'tasks'].includes(s.homePage)) out.homePage = s.homePage
   if (typeof s.pollIntervalSec === 'number' && s.pollIntervalSec >= 15 && s.pollIntervalSec <= 3600)
     out.pollIntervalSec = Math.round(s.pollIntervalSec)
+
+  if (s.markRead === 'never' || s.markRead === 'open' || s.markRead === 'delay') out.markRead = s.markRead
 
   if (Array.isArray(s.accounts)) {
     out.accounts = s.accounts

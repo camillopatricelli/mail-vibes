@@ -388,6 +388,13 @@ export function SettingsPage() {
             ))}
           </select>
         </Field>
+        <Field label={t('settings.markRead')}>
+          <select className="select" value={s.markRead} onChange={(e) => s.update({ markRead: e.target.value as typeof s.markRead })}>
+            <option value="never">{t('settings.markReadNever')}</option>
+            <option value="open">{t('settings.markReadOpen')}</option>
+            <option value="delay">{t('settings.markReadDelay')}</option>
+          </select>
+        </Field>
         <Field label={t('settings.pollInterval')}>
           <select className="select" value={s.pollIntervalSec} onChange={(e) => s.update({ pollIntervalSec: Number(e.target.value) })}>
             {pollIntervalOptions.map((sec) => (

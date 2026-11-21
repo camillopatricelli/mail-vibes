@@ -49,7 +49,11 @@ export interface MailFolder {
   name: string
   /** Depth for indentation in pickers */
   depth: number
+  unread: number
 }
+
+/** What a list shows: a well-known folder merged across accounts, or one account's own folder. */
+export type ListTarget = FolderKind | { folderId: string }
 
 export interface ListResult {
   messages: MailSummary[]
@@ -74,13 +78,14 @@ export interface DraftRef {
 }
 
 export interface MailProvider {
-  list(accountId: string, folder: FolderKind, count: number): Promise<ListResult>
+  list(accountId: string, target: ListTarget, count: number): Promise<ListResult>
   thread(accountId: string, threadId: string): Promise<MailMessage[]>
   setRead(accountId: string, ids: string[], read: boolean): Promise<void>
   setFlagged(accountId: string, ids: string[], flagged: boolean): Promise<void>
   /** Moves messages to a well-known folder or a folder id */
-  move(accountId: string, ids: string[], dest: FolderKind | { folderId: string }): Promise<void>
+  move(accountId: string, ids: string[], dest: ListTarget): Promise<void>
   deleteForever(accountId: string, ids: string[]): Promise<void>
+  /** The user's own folders (well-known/system folders excluded), with unread counts */
   folders(accountId: string): Promise<MailFolder[]>
   /** Server-side unread count of the folder (inbox: unread messages) */
   unreadCount(accountId: string, folder: FolderKind): Promise<number>

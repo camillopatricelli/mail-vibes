@@ -1,20 +1,21 @@
+import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { displayName, fullDate, listDate } from '../lib/format'
-import { href, navigate, useLocation } from '../lib/router'
+import { href, useLocation } from '../lib/router'
 import { timeAgo, useNow } from '../lib/time'
 import { useSettings, type AccountSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 import { AccountBadge, Button, EmptyState, Icon, IconButton, type IconName } from '../ui/components'
 import { Dialog, Menu, Spinner } from '../ui/overlay'
 import { formatAddress } from './addressBook'
+import { providerFor } from './api'
 import { AttachmentList } from './Attachments'
 import { openDraft, openNew, openReply } from './compose'
-import { mailActions, useFolders, useMergedFolder, useThread, useUnreadCounts, type ThreadSummary } from './data'
+import { mailActions, useAllFolders, useFolders, useMergedFolder, useThread, useUnreadCounts, type ThreadSummary } from './data'
 import { MessageBody } from './MessageBody'
-import { providerFor } from './api'
-import { folderKinds, type FolderKind, type MailMessage } from './types'
-import { useQuery } from '@tanstack/react-query'
+import { goMail, mailHref, parseMailParams, sameView, uiFolder, viewTarget, type MailView, type UiFolder } from './routes'
+import { folderKinds, type FolderKind, type ListTarget, type MailMessage } from './types'
 
 const folderIcons: Record<FolderKind, IconName> = {
   inbox: 'inbox',
@@ -31,9 +32,15 @@ function useAccountMap() {
   return useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts])
 }
 
-function FolderNav({ folder }: { folder: FolderKind }) {
+const accountLabel = (a: AccountSettings) => a.displayName || a.email
+
+// ---------- Navigation ----------
+
+function FolderNav({ view }: { view: MailView }) {
   const { t } = useTranslation()
   const inboxUnread = useUnreadCounts('inbox')
+  const accountFolders = useAllFolders()
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   return (
     <nav className="mail-nav" aria-label={t('mail.folders')}>
       <button type="button" className="fab" onClick={() => openNew()}>
@@ -41,29 +48,116 @@ function FolderNav({ folder }: { folder: FolderKind }) {
         <span className="label-large">{t('compose.compose')}</span>
       </button>
       <ul>
-        {folderKinds.map((f) => (
-          <li key={f}>
-            <a href={href('mail', f)} className={['mail-nav__item', f === folder && 'is-active'].filter(Boolean).join(' ')} aria-current={f === folder ? 'page' : undefined}>
-              <Icon name={folderIcons[f]} filled={f === folder} />
-              <span className="label-large">{t(`mail.folder.${f}`)}</span>
-              {f === 'inbox' && inboxUnread > 0 && <span className="label-medium mail-nav__count">{inboxUnread}</span>}
-            </a>
-          </li>
-        ))}
+        {folderKinds.map((f) => {
+          const active = view.kind === 'well' && view.folder === f
+          return (
+            <li key={f}>
+              <a href={mailHref({ kind: 'well', folder: f })} className={['mail-nav__item', active && 'is-active'].filter(Boolean).join(' ')} aria-current={active ? 'page' : undefined}>
+                <Icon name={folderIcons[f]} filled={active} />
+                <span className="label-large">{t(`mail.folder.${f}`)}</span>
+                {f === 'inbox' && inboxUnread > 0 && <span className="label-medium mail-nav__count">{inboxUnread}</span>}
+              </a>
+            </li>
+          )
+        })}
       </ul>
+      {accountFolders.length > 0 && <h2 className="title-small mail-nav__heading">{t('mail.myFolders')}</h2>}
+      {accountFolders.map(({ account, folders, error, isPending }) => {
+        const open = !collapsed.has(account.id)
+        return (
+          <div key={account.id} className="mail-nav__account">
+            <button
+              type="button"
+              className="mail-nav__account-head"
+              aria-expanded={open}
+              title={open ? t('mail.hideFolders', { account: account.email }) : t('mail.showFolders', { account: account.email })}
+              onClick={() =>
+                setCollapsed((s) => {
+                  const n = new Set(s)
+                  if (n.has(account.id)) n.delete(account.id)
+                  else n.add(account.id)
+                  return n
+                })
+              }
+            >
+              <Icon name={open ? 'keyboard_arrow_down' : 'chevron_right'} size={20} />
+              <span className="chip__dot" style={{ background: account.color }} />
+              <span className="label-large mail-nav__account-name">{accountLabel(account)}</span>
+            </button>
+            {open &&
+              (isPending ? (
+                <Spinner size={18} label={t('mail.loading')} />
+              ) : error ? (
+                <p className="body-small field-error mail-nav__note">{t('mail.foldersFailed', { reason: error.message })}</p>
+              ) : !folders?.length ? (
+                <p className="body-small muted mail-nav__note">{t('mail.folderEmptyList')}</p>
+              ) : (
+                <ul>
+                  {folders.map((f) => {
+                    const v: MailView = { kind: 'custom', accountId: account.id, folderId: f.id }
+                    const active = sameView(v, view)
+                    return (
+                      <li key={f.id}>
+                        <a
+                          href={mailHref(v)}
+                          className={['mail-nav__item', 'mail-nav__item--folder', active && 'is-active'].filter(Boolean).join(' ')}
+                          style={{ paddingLeft: 16 + f.depth * 16 }}
+                          aria-current={active ? 'page' : undefined}
+                          title={f.name}
+                        >
+                          <Icon name="folder" size={20} filled={active} />
+                          <span className="label-large mail-nav__folder-name">{f.name}</span>
+                          {f.unread > 0 && <span className="label-medium mail-nav__count">{f.unread}</span>}
+                        </a>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ))}
+          </div>
+        )
+      })}
     </nav>
   )
 }
 
-function FolderPicker({ folder }: { folder: FolderKind }) {
+/** Folder selector for phones (the navigation column is hidden there). */
+function FolderPicker({ view }: { view: MailView }) {
   const { t } = useTranslation()
+  const accountFolders = useAllFolders()
+  const value = view.kind === 'well' ? `w:${view.folder}` : `c:${view.accountId}\n${view.folderId}`
   return (
-    <select className="select folder-picker compact-only" value={folder} onChange={(e) => navigate('mail', e.target.value)} aria-label={t('mail.folders')}>
+    <select
+      className="select folder-picker compact-only"
+      value={value}
+      onChange={(e) => {
+        const v = e.target.value
+        if (v.startsWith('w:')) goMail({ kind: 'well', folder: v.slice(2) as FolderKind })
+        else {
+          const [accountId, folderId] = v.slice(2).split('\n')
+          goMail({ kind: 'custom', accountId, folderId })
+        }
+      }}
+      aria-label={t('mail.folders')}
+    >
       {folderKinds.map((f) => (
-        <option key={f} value={f}>
+        <option key={f} value={`w:${f}`}>
           {t(`mail.folder.${f}`)}
         </option>
       ))}
+      {accountFolders.map(({ account, folders }) =>
+        folders?.length ? (
+          <optgroup key={account.id} label={accountLabel(account)}>
+            {folders.map((f) => (
+              <option key={f.id} value={`c:${account.id}\n${f.id}`}>
+                {' '.repeat(f.depth * 3)}
+                {f.name}
+                {f.unread ? ` (${f.unread})` : ''}
+              </option>
+            ))}
+          </optgroup>
+        ) : null,
+      )}
     </select>
   )
 }
@@ -81,21 +175,41 @@ function SyncStatus({ accounts }: { accounts: AccountSettings[] }) {
   const oldest = Math.min(...times)
   const anyError = accounts.some((a) => status[a.id]?.error)
   return (
-    <span className={['body-small', anyError ? 'sync-status--error' : 'muted'].join(' ')} title={accounts.map((a) => `${a.email}: ${status[a.id]?.lastSuccessAt ? timeAgo(status[a.id]!.lastSuccessAt!, now) : t('accounts.neverUpdated')}`).join('\n')}>
+    <span
+      className={['body-small', anyError ? 'sync-status--error' : 'muted'].join(' ')}
+      title={accounts.map((a) => `${a.email}: ${status[a.id]?.lastSuccessAt ? timeAgo(status[a.id]!.lastSuccessAt!, now) : t('accounts.neverUpdated')}`).join('\n')}
+    >
       {anyError ? t('mail.someAccountsFailing') : oldest ? t('accounts.lastUpdated', { ago: timeAgo(oldest, now) }) : t('accounts.neverUpdated')}
     </span>
   )
 }
 
-function ThreadRow({ th, folder, account, selected, onSelect }: { th: ThreadSummary; folder: FolderKind; account?: AccountSettings; selected: boolean; onSelect: (v: boolean) => void }) {
+// ---------- List ----------
+
+function ThreadRow({
+  th,
+  view,
+  account,
+  selected,
+  onSelect,
+}: {
+  th: ThreadSummary
+  view: MailView
+  account?: AccountSettings
+  selected: boolean
+  onSelect: (v: boolean) => void
+}) {
   const { t } = useTranslation()
+  const folder = uiFolder(view)
   const items = itemsOf([th])
   const open = () => {
     if (folder === 'drafts' && th.hasDraft && th.messages.length === 1) void openDraft(th.accountId, th.messages[0].id)
-    else navigate('mail', folder, 't', th.accountId, th.threadId)
+    else goMail(view, { accountId: th.accountId, threadId: th.threadId })
   }
-  const senders = folder === 'sent' || folder === 'drafts' ? th.messages[th.messages.length - 1].to.map(displayName).join(', ') : th.participants.map(displayName).join(', ')
-  const label = account ? account.displayName || account.email : ''
+  const senders =
+    folder === 'sent' || folder === 'drafts'
+      ? th.messages[th.messages.length - 1].to.map(displayName).join(', ')
+      : th.participants.map(displayName).join(', ')
   return (
     <li className={['thread-row', th.unread && 'is-unread', selected && 'is-selected'].filter(Boolean).join(' ')} style={{ borderLeftColor: account?.color }}>
       <input type="checkbox" className="thread-row__check" checked={selected} onChange={(e) => onSelect(e.target.checked)} aria-label={t('mail.select', { subject: th.subject })} />
@@ -104,13 +218,11 @@ function ThreadRow({ th, folder, account, selected, onSelect }: { th: ThreadSumm
         className="thread-row__star"
         selected={th.flagged}
         label={th.flagged ? t('mail.unstar') : t('mail.star')}
-        onClick={() =>
-          void mailActions.setFlagged(th.flagged ? items.filter((_, i) => th.messages[i].isFlagged) : [items[items.length - 1]], !th.flagged)
-        }
+        onClick={() => void mailActions.setFlagged(th.flagged ? items.filter((_, i) => th.messages[i].isFlagged) : [items[items.length - 1]], !th.flagged)}
       />
       <button type="button" className="thread-row__main" onClick={open}>
         <span className="thread-row__from">
-          {account && <AccountBadge color={account.color} label={label} size={18} />}
+          {account && <AccountBadge color={account.color} label={accountLabel(account)} size={18} />}
           <span className="thread-row__senders">{senders || t('mail.noRecipients')}</span>
           {th.messages.length > 1 && <span className="thread-row__count body-small muted">{th.messages.length}</span>}
           {th.hasDraft && folder !== 'drafts' && <span className="draft-label body-small">{t('mail.draft')}</span>}
@@ -125,7 +237,7 @@ function ThreadRow({ th, folder, account, selected, onSelect }: { th: ThreadSumm
         </span>
       </button>
       <span className="thread-row__actions">
-        {folder === 'inbox' && <IconButton icon="archive" label={t('mail.archive')} onClick={() => void mailActions.archive(items, 1)} />}
+        {(folder === 'inbox' || folder === 'custom') && <IconButton icon="archive" label={t('mail.archive')} onClick={() => void mailActions.archive(items, 1)} />}
         {folder !== 'trash' ? (
           <IconButton icon="delete" label={t('mail.delete')} onClick={() => void mailActions.trash(items, 1)} />
         ) : (
@@ -141,43 +253,85 @@ function ThreadRow({ th, folder, account, selected, onSelect }: { th: ThreadSumm
   )
 }
 
-function MoveDialog({ open, onClose, accountIds, onPick }: { open: boolean; onClose: () => void; accountIds: string[]; onPick: (accountId: string, folderId: string, name: string) => void }) {
+/** Move to Inbox, Archive or one of the account's own folders. */
+function MoveDialog({
+  open,
+  onClose,
+  accountIds,
+  onPick,
+}: {
+  open: boolean
+  onClose: () => void
+  accountIds: string[]
+  onPick: (dest: ListTarget, name: string) => void
+}) {
   const { t } = useTranslation()
   const single = accountIds.length === 1 ? accountIds[0] : undefined
   const folders = useFolders(open ? single : undefined)
+  const standard: FolderKind[] = ['inbox', 'archive']
   return (
     <Dialog open={open} onClose={onClose} title={t('mail.moveTo')}>
       {!single ? (
         <p className="body-medium">{t('mail.moveOneAccount')}</p>
-      ) : folders.isPending ? (
-        <Spinner label={t('mail.loading')} />
-      ) : folders.error ? (
-        <p className="field-error" role="alert">
-          {(folders.error as Error).message}
-        </p>
       ) : (
         <ul className="folder-list">
-          {folders.data!.map((f) => (
-            <li key={f.id}>
-              <button type="button" style={{ paddingLeft: 16 + f.depth * 20 }} onClick={() => onPick(single, f.id, f.name)}>
-                <Icon name="folder" size={20} />
-                <span className="body-large">{f.name}</span>
+          {standard.map((f) => (
+            <li key={f}>
+              <button type="button" onClick={() => onPick(f, t(`mail.folder.${f}`))}>
+                <Icon name={folderIcons[f]} size={20} />
+                <span className="body-large">{t(`mail.folder.${f}`)}</span>
               </button>
             </li>
           ))}
+          {folders.isPending ? (
+            <li className="folder-list__note">
+              <Spinner size={20} label={t('mail.loading')} />
+            </li>
+          ) : folders.error ? (
+            <li className="folder-list__note field-error" role="alert">
+              {t('mail.foldersFailed', { reason: (folders.error as Error).message })}
+            </li>
+          ) : (
+            folders.data!.map((f) => (
+              <li key={f.id}>
+                <button type="button" style={{ paddingLeft: 24 + f.depth * 20 }} onClick={() => onPick({ folderId: f.id }, f.name)}>
+                  <Icon name="folder" size={20} />
+                  <span className="body-large">{f.name}</span>
+                </button>
+              </li>
+            ))
+          )}
         </ul>
       )}
     </Dialog>
   )
 }
 
-function MailList({ folder }: { folder: FolderKind }) {
+function CustomFolderTitle({ view }: { view: Extract<MailView, { kind: 'custom' }> }) {
   const { t } = useTranslation()
-  const { accounts, threads, hasMore, isLoading, isFetching, errors, loadMore, refresh } = useMergedFolder(folder)
+  const folders = useFolders(view.accountId)
+  const account = useSettings((s) => s.accounts.find((a) => a.id === view.accountId))
+  const name = folders.data?.find((f) => f.id === view.folderId)?.name ?? '…'
+  return (
+    <h1 className="title-large custom-folder-title">
+      <Icon name="folder" />
+      {account ? t('mail.inFolder', { folder: name, account: accountLabel(account) }) : name}
+    </h1>
+  )
+}
+
+function MailList({ view }: { view: MailView }) {
+  const { t } = useTranslation()
+  const folder = uiFolder(view)
+  const { accounts, threads, hasMore, isLoading, isFetching, errors, loadMore, refresh } = useMergedFolder(
+    viewTarget(view),
+    view.kind === 'custom' ? view.accountId : undefined,
+  )
   const accountMap = useAccountMap()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [moving, setMoving] = useState(false)
-  useEffect(() => setSelected(new Set()), [folder])
+  const viewKey = mailHref(view)
+  useEffect(() => setSelected(new Set()), [viewKey])
 
   const sel = threads.filter((th) => selected.has(th.key))
   const selItems = itemsOf(sel)
@@ -191,6 +345,7 @@ function MailList({ folder }: { folder: FolderKind }) {
 
   return (
     <div className="mail-list">
+      {view.kind === 'custom' && <CustomFolderTitle view={view} />}
       <div className="list-toolbar">
         <input
           type="checkbox"
@@ -210,7 +365,9 @@ function MailList({ folder }: { folder: FolderKind }) {
           </>
         ) : (
           <>
-            {folder === 'inbox' && <IconButton icon="archive" label={t('mail.archive')} onClick={() => void mailActions.archive(selItems, sel.length).then(clear)} />}
+            {(folder === 'inbox' || folder === 'custom') && (
+              <IconButton icon="archive" label={t('mail.archive')} onClick={() => void mailActions.archive(selItems, sel.length).then(clear)} />
+            )}
             {folder === 'trash' ? (
               <>
                 <IconButton icon="inbox" label={t('mail.restore')} onClick={() => void mailActions.moveToInbox(selItems, sel.length).then(clear)} />
@@ -251,14 +408,14 @@ function MailList({ folder }: { folder: FolderKind }) {
           <Spinner label={t('mail.loading')} />
         </div>
       ) : !threads.length && !errors.length ? (
-        <EmptyState icon={folderIcons[folder]} title={t('mail.empty')} />
+        <EmptyState icon={view.kind === 'well' ? folderIcons[view.folder] : 'folder'} title={t('mail.empty')} />
       ) : (
         <ul className="thread-list">
           {threads.map((th) => (
             <ThreadRow
               key={th.key}
               th={th}
-              folder={folder}
+              view={view}
               account={accountMap.get(th.accountId)}
               selected={selected.has(th.key)}
               onSelect={(v) =>
@@ -284,14 +441,16 @@ function MailList({ folder }: { folder: FolderKind }) {
         open={moving}
         onClose={() => setMoving(false)}
         accountIds={[...new Set(sel.map((s) => s.accountId))]}
-        onPick={(_a, folderId, name) => {
+        onPick={(dest, name) => {
           setMoving(false)
-          void mailActions.moveToFolder(selItems, folderId, name).then(clear)
+          void mailActions.moveTo(selItems, dest, name).then(clear)
         }}
       />
     </div>
   )
 }
+
+// ---------- Conversation ----------
 
 function MessageCard({ m, expanded, onToggle, account }: { m: MailMessage; expanded: boolean; onToggle: () => void; account?: AccountSettings }) {
   const { t } = useTranslation()
@@ -304,7 +463,7 @@ function MessageCard({ m, expanded, onToggle, account }: { m: MailMessage; expan
   const recipients = [...m.to, ...m.cc]
   if (!expanded)
     return (
-      <li className="message is-collapsed">
+      <li className={['message', 'is-collapsed', !m.isRead && 'is-unread'].filter(Boolean).join(' ')}>
         <button type="button" className="message__collapsed" onClick={onToggle}>
           <AccountBadge color={account?.color ?? '#888'} label={displayName(m.from)} size={32} />
           <span className="message__from-name title-small">{displayName(m.from)}</span>
@@ -315,14 +474,12 @@ function MessageCard({ m, expanded, onToggle, account }: { m: MailMessage; expan
       </li>
     )
   return (
-    <li className="message">
+    <li className={['message', !m.isRead && 'is-unread'].filter(Boolean).join(' ')}>
       <header className="message__head">
         <AccountBadge color={account?.color ?? '#888'} label={displayName(m.from)} size={40} />
         <button type="button" className="message__who" onClick={onToggle} aria-expanded>
           <span className="title-small">{displayName(m.from)}</span> <span className="body-small muted">&lt;{m.from.email}&gt;</span>
-          <span className="body-small muted message__to">
-            {t('mail.toList', { list: recipients.map((a) => formatAddress(a)).join(', ') || '—' })}
-          </span>
+          <span className="body-small muted message__to">{t('mail.toList', { list: recipients.map((a) => formatAddress(a)).join(', ') || '—' })}</span>
         </button>
         <span className="body-small muted message__date" title={fullDate(m.date)}>
           {listDate(m.date)}
@@ -341,7 +498,9 @@ function MessageCard({ m, expanded, onToggle, account }: { m: MailMessage; expan
               items={[
                 { label: t('mail.replyAll'), icon: 'reply_all', onSelect: () => void openReply(m, 'replyAll') },
                 { label: t('mail.forward'), icon: 'forward', onSelect: () => void openReply(m, 'forward') },
-                { label: t('mail.markUnreadFromHere'), icon: 'mark_email_unread', onSelect: () => void mailActions.setRead([m], false) },
+                m.isRead
+                  ? { label: t('mail.markUnread'), icon: 'mark_email_unread', onSelect: () => void mailActions.setRead([m], false) }
+                  : { label: t('mail.markRead'), icon: 'mark_email_read', onSelect: () => void mailActions.setRead([m], true) },
               ]}
             />
           </>
@@ -362,13 +521,15 @@ function MessageCard({ m, expanded, onToggle, account }: { m: MailMessage; expan
   )
 }
 
-function ThreadView({ folder, accountId, threadId }: { folder: FolderKind; accountId: string; threadId: string }) {
+function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: string; threadId: string }) {
   const { t } = useTranslation()
   const q = useThread(accountId, threadId)
   const account = useSettings((s) => s.accounts.find((a) => a.id === accountId))
+  const markReadPref = useSettings((s) => s.markRead)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [moving, setMoving] = useState(false)
-  const back = () => navigate('mail', folder)
+  const folder: UiFolder = uiFolder(view)
+  const back = () => goMail(view)
   // Messages that were unread when the conversation opened stay expanded after being marked read.
   const initiallyUnread = useRef<Set<string> | null>(null)
   if (q.data && !initiallyUnread.current) initiallyUnread.current = new Set(q.data.filter((m) => !m.isRead).map((m) => m.id))
@@ -377,13 +538,28 @@ function ThreadView({ folder, accountId, threadId }: { folder: FolderKind; accou
   const viewingTrash = folder === 'trash' || folder === 'spam'
   const messages = viewingTrash ? all : all.filter((m) => m.folderKind !== 'trash' && m.folderKind !== 'spam')
   const latest = [...messages].reverse().find((m) => !m.isDraft) ?? messages[messages.length - 1]
+  const unread = messages.filter((m) => !m.isRead)
 
-  // Opening a conversation marks it read (as in Gmail).
-  const unreadIds = messages.filter((m) => !m.isRead).map((m) => m.id).join(',')
+  // Automatic "mark as read" only if the user chose it in Settings, and only once per opening,
+  // so a deliberate "Mark as unread" is never undone.
+  const autoDone = useRef(false)
+  const loaded = !!q.data
   useEffect(() => {
-    if (unreadIds) void mailActions.setRead(messages.filter((m) => !m.isRead), true)
+    if (!loaded || markReadPref === 'never' || autoDone.current) return
+    const run = () => {
+      autoDone.current = true
+      const ids = initiallyUnread.current
+      const targets = (q.data ?? []).filter((m) => ids?.has(m.id) && !m.isRead)
+      if (targets.length) void mailActions.setRead(targets, true)
+    }
+    if (markReadPref === 'open') {
+      run()
+      return
+    }
+    const h = setTimeout(run, 5000)
+    return () => clearTimeout(h)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unreadIds])
+  }, [loaded, markReadPref])
 
   if (q.isPending)
     return (
@@ -408,9 +584,10 @@ function ThreadView({ folder, accountId, threadId }: { folder: FolderKind; accou
         </div>
       </div>
     )
-  if (!messages.length) return <EmptyState icon="mail" title={t('mail.threadGone')} body={<a href={href('mail', folder)}>{t('mail.back')}</a>} />
+  if (!messages.length) return <EmptyState icon="mail" title={t('mail.threadGone')} body={<a href={mailHref(view)}>{t('mail.back')}</a>} />
 
   const inInbox = messages.filter((m) => m.folderKind === 'inbox')
+  const archivable = folder === 'custom' ? messages.filter((m) => !m.folderKind) : inInbox
   const notTrashed = messages.filter((m) => m.folderKind !== 'trash')
   const movable = messages.filter((m) => m.folderKind !== 'sent' && m.folderKind !== 'drafts' && m.folderKind !== 'trash')
   const isExpanded = (m: MailMessage) => expanded.has(m.id) !== (m.id === latest?.id || !!initiallyUnread.current?.has(m.id))
@@ -419,7 +596,7 @@ function ThreadView({ folder, accountId, threadId }: { folder: FolderKind; accou
     <div className="thread">
       <div className="list-toolbar">
         <IconButton icon="arrow_back" label={t('mail.back')} onClick={back} />
-        {inInbox.length > 0 && <IconButton icon="archive" label={t('mail.archive')} onClick={() => void mailActions.archive(inInbox, 1).then(back)} />}
+        {archivable.length > 0 && <IconButton icon="archive" label={t('mail.archive')} onClick={() => void mailActions.archive(archivable, 1).then(back)} />}
         {notTrashed.length > 0 ? (
           <IconButton icon="delete" label={t('mail.delete')} onClick={() => void mailActions.trash(notTrashed, 1).then(back)} />
         ) : (
@@ -431,13 +608,19 @@ function ThreadView({ folder, accountId, threadId }: { folder: FolderKind; accou
             }}
           />
         )}
-        {viewingTrash && <IconButton icon="inbox" label={folder === 'spam' ? t('mail.notSpam') : t('mail.restore')} onClick={() => void mailActions.moveToInbox(messages, 1).then(back)} />}
-        {latest && <IconButton icon="mark_email_unread" label={t('mail.markUnread')} onClick={() => void mailActions.setRead([latest], false).then(back)} />}
+        {viewingTrash && (
+          <IconButton icon="inbox" label={folder === 'spam' ? t('mail.notSpam') : t('mail.restore')} onClick={() => void mailActions.moveToInbox(messages, 1).then(back)} />
+        )}
+        {unread.length > 0 ? (
+          <IconButton icon="mark_email_read" label={t('mail.markRead')} onClick={() => void mailActions.setRead(unread, true)} />
+        ) : (
+          latest && <IconButton icon="mark_email_unread" label={t('mail.markUnread')} onClick={() => void mailActions.setRead([latest], false)} />
+        )}
         {movable.length > 0 && <IconButton icon="drive_file_move" label={t('mail.moveTo')} onClick={() => setMoving(true)} />}
         <span className="spacer" />
         {account && (
           <span className="thread__account body-small" style={{ borderColor: account.color }}>
-            <AccountBadge color={account.color} label={account.displayName || account.email} size={16} />
+            <AccountBadge color={account.color} label={accountLabel(account)} size={16} />
             {account.email}
           </span>
         )}
@@ -478,9 +661,9 @@ function ThreadView({ folder, accountId, threadId }: { folder: FolderKind; accou
         open={moving}
         onClose={() => setMoving(false)}
         accountIds={[accountId]}
-        onPick={(_a, folderId, name) => {
+        onPick={(dest, name) => {
           setMoving(false)
-          void mailActions.moveToFolder(movable, folderId, name).then(back)
+          void mailActions.moveTo(movable, dest, name).then(back)
         }}
       />
     </div>
@@ -490,16 +673,19 @@ function ThreadView({ folder, accountId, threadId }: { folder: FolderKind; accou
 export function MailPage() {
   const { t } = useTranslation()
   const { params } = useLocation()
-  const folder = (folderKinds as string[]).includes(params[0]) ? (params[0] as FolderKind) : 'inbox'
-  const inThread = params[1] === 't' && params[2] && params[3]
+  const { view, thread } = parseMailParams(params)
   return (
     <div className="mail">
-      <FolderNav folder={folder} />
+      <FolderNav view={view} />
       <section className="mail-main">
         <div className="mail-main__head compact-only">
-          <FolderPicker folder={folder} />
+          <FolderPicker view={view} />
         </div>
-        {inThread ? <ThreadView key={`${params[2]}|${params[3]}`} folder={folder} accountId={params[2]} threadId={params[3]} /> : <MailList folder={folder} />}
+        {thread ? (
+          <ThreadView key={`${thread.accountId}|${thread.threadId}`} view={view} accountId={thread.accountId} threadId={thread.threadId} />
+        ) : (
+          <MailList view={view} />
+        )}
       </section>
       <button type="button" className="fab fab--floating compact-only" onClick={() => openNew()} aria-label={t('compose.compose')}>
         <Icon name="edit" />
