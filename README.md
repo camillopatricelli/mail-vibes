@@ -12,6 +12,11 @@ talks directly to the Gmail / Google Calendar / Google Tasks APIs and Microsoft 
 and tasks are kept in memory only and never stored on the device. Only small settings (account
 colours, preferences, default accounts) and the sign-in libraries' token caches are saved locally.
 
+## Using it on several devices
+
+Settings live in each browser; move them with a settings file and sign in again. See
+[docs/other-devices.md](docs/other-devices.md).
+
 ## Microsoft 365 organisations
 
 The app ships with no organisations built in. Each Microsoft 365 organisation needs its own

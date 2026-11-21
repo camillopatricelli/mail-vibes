@@ -140,7 +140,8 @@ const en = {
     noneSet: 'Not set',
     backup: 'Back up settings',
     backupHint:
-      'Settings contain only preferences and account colours, never mail, events, tasks or passwords.',
+      'The file holds your accounts’ addresses, organisations, preferences and Google Maps key; never mail, events, tasks, passwords or sign-ins. Use it to set up Mail Vibes on another device.',
+    otherDevices: 'How to use Mail Vibes on another device',
     export: 'Export to file',
     import: 'Import from file',
     importOk: 'Settings imported.',

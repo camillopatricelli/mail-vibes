@@ -553,6 +553,9 @@ export function SettingsPage() {
             {t('settings.reset')}
           </Button>
         </div>
+        <a className="body-medium" href={`${appInfo.repoUrl}/blob/main/docs/other-devices.md`} target="_blank" rel="noopener noreferrer">
+          {t('settings.otherDevices')}
+        </a>
       </Section>
 
       <Section title={t('settings.about')}>

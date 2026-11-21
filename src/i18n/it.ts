@@ -142,7 +142,8 @@ const it: Messages = {
     noneSet: 'Non impostato',
     backup: 'Backup delle impostazioni',
     backupHint:
-      'Le impostazioni contengono solo preferenze e colori degli account, mai posta, eventi, attività o password.',
+      'Il file contiene gli indirizzi degli account, le organizzazioni, le preferenze e la chiave Google Maps; mai posta, eventi, attività, password o accessi. Serve a configurare Mail Vibes su un altro dispositivo.',
+    otherDevices: 'Come usare Mail Vibes su un altro dispositivo',
     export: 'Esporta su file',
     import: 'Importa da file',
     importOk: 'Impostazioni importate.',
