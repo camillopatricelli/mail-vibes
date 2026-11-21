@@ -184,6 +184,7 @@ function findPart(payload: GPart | undefined, partId: string) {
 }
 
 async function modify(accountId: string, ids: string[], add: string[], remove: string[]) {
+  patchLabels(accountId, ids, add, remove)
   for (let i = 0; i < ids.length; i += 1000)
     await google(accountId, `${API}/messages/batchModify`, {
       method: 'POST',
@@ -203,6 +204,99 @@ async function perMessage(accountId: string, ids: string[], action: 'trash' | 'u
       (failed[0].body as { error?: { message?: string } }).error?.message ?? `${failed.length} of ${ids.length} failed`,
       failed[0].status,
     )
+}
+
+// ---- List cache ---------------------------------------------------------------------------
+// Fetching every listed message on every poll quickly hits Gmail's per-user limits. Message
+// headers never change, so list entries are kept in memory and only their labels (read, starred,
+// folders) are kept up to date through Gmail's change history: one small request per refresh.
+
+interface ListCache {
+  historyId?: string
+  messages: Map<string, GMsg>
+  chain: Promise<unknown>
+}
+const listCaches = new Map<string, ListCache>()
+const MAX_CACHED = 3000
+
+interface HistoryPage {
+  history?: {
+    messagesDeleted?: { message: { id: string } }[]
+    labelsAdded?: { message: { id: string; labelIds?: string[] } }[]
+    labelsRemoved?: { message: { id: string; labelIds?: string[] } }[]
+  }[]
+  historyId?: string
+  nextPageToken?: string
+}
+
+async function applyHistory(accountId: string, c: ListCache) {
+  if (!c.historyId) {
+    c.messages.clear()
+    c.historyId = (await google<{ historyId: string }>(accountId, `${API}/profile?fields=historyId`)).historyId
+    return
+  }
+  let pageToken: string | undefined
+  let latest = c.historyId
+  try {
+    do {
+      const q = new URLSearchParams({ startHistoryId: c.historyId, maxResults: '500' })
+      for (const t of ['labelAdded', 'labelRemoved', 'messageDeleted']) q.append('historyTypes', t)
+      if (pageToken) q.set('pageToken', pageToken)
+      const r = await google<HistoryPage>(accountId, `${API}/history?${q}`)
+      for (const h of r.history ?? []) {
+        for (const d of h.messagesDeleted ?? []) c.messages.delete(d.message.id)
+        for (const ch of [...(h.labelsAdded ?? []), ...(h.labelsRemoved ?? [])]) {
+          const m = c.messages.get(ch.message.id)
+          if (m && ch.message.labelIds) m.labelIds = ch.message.labelIds
+        }
+      }
+      if (r.historyId) latest = r.historyId
+      pageToken = r.nextPageToken
+    } while (pageToken)
+    c.historyId = latest
+  } catch (e) {
+    // The starting point is too old (Gmail keeps about a week of history): start over.
+    if (e instanceof ApiError && e.status === 404) {
+      c.historyId = undefined
+      return applyHistory(accountId, c)
+    }
+    throw e
+  }
+}
+
+/** Brings the cache up to date and returns it, with every id in `ids` present (unless deleted). */
+function summaries(accountId: string, ids: string[]): Promise<Map<string, GMsg>> {
+  let c = listCaches.get(accountId)
+  if (!c) listCaches.set(accountId, (c = { messages: new Map(), chain: Promise.resolve() }))
+  const cache = c
+  const run = cache.chain.catch(() => undefined).then(async () => {
+    await applyHistory(accountId, cache)
+    if (cache.messages.size > MAX_CACHED) cache.messages.clear()
+    const missing = ids.filter((id) => !cache.messages.has(id))
+    const parts = await googleBatch<GMsg>(
+      accountId,
+      BATCH,
+      missing.map((id) => ({ path: `/gmail/v1/users/me/messages/${id}?${SUMMARY_QS}` })),
+    )
+    // A message deleted between the calls answers 404: skip it rather than failing the list.
+    const bad = parts.filter((p) => p.status >= 400 && p.status !== 404)
+    if (bad.length)
+      throw new ApiError((bad[0].body as { error?: { message?: string } }).error?.message ?? `HTTP ${bad[0].status}`, bad[0].status)
+    for (const p of parts) if (p.status < 400) cache.messages.set((p.body as GMsg).id, p.body as GMsg)
+    return cache.messages
+  })
+  cache.chain = run
+  return run
+}
+
+/** Applies a label change made by this app right away (the history catches up on the next sync). */
+function patchLabels(accountId: string, ids: string[], add: string[], remove: string[]) {
+  const c = listCaches.get(accountId)
+  if (!c) return
+  for (const id of ids) {
+    const m = c.messages.get(id)
+    if (m) m.labelIds = [...new Set([...(m.labelIds ?? []).filter((l) => !remove.includes(l)), ...add])]
+  }
 }
 
 // ---- Drafts -------------------------------------------------------------------------------
@@ -323,17 +417,12 @@ export const gmail: MailProvider = {
     } else params.set('labelIds', target.folderId)
     const page = await google<{ messages?: { id: string }[]; nextPageToken?: string }>(accountId, `${API}/messages?${params}`)
     const ids = (page.messages ?? []).map((m) => m.id)
-    const parts = await googleBatch<GMsg>(
-      accountId,
-      BATCH,
-      ids.map((id) => ({ path: `/gmail/v1/users/me/messages/${id}?${SUMMARY_QS}` })),
-    )
-    // A message deleted between the two calls answers 404: skip it rather than failing the list.
-    const bad = parts.filter((p) => p.status >= 400 && p.status !== 404)
-    if (bad.length)
-      throw new ApiError((bad[0].body as { error?: { message?: string } }).error?.message ?? `HTTP ${bad[0].status}`, bad[0].status)
+    const cache = await summaries(accountId, ids)
     return {
-      messages: parts.filter((p) => p.status < 400).map((p) => toSummary(accountId, p.body as GMsg)),
+      messages: ids.flatMap((id) => {
+        const m = cache.get(id)
+        return m ? [toSummary(accountId, m)] : []
+      }),
       hasMore: !!page.nextPageToken,
     }
   },
