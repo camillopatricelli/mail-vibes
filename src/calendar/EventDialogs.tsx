@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query'
 import DOMPurify from 'dompurify'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -11,10 +12,10 @@ import { AccountBadge, Button, Icon, type IconName } from '../ui/components'
 import { Dialog, Spinner } from '../ui/overlay'
 import { calendarFor, calendarKey } from './api'
 import { calendarActions, useCalendars, type ShownEvent } from './data'
-import { addDays, fromDateKey, toDateKey, toTimeKey, withTime } from './dates'
+import { addDays, fromDateKey, startOfDay, toDateKey, toTimeKey, withTime } from './dates'
 import { eventWhen } from './format'
 import type { Address } from '../mail/types'
-import type { CalEvent, EventDraft, MeetingChoice, Repeat, Response } from './types'
+import type { CalEvent, EventDraft, MeetingChoice, Repeat, Response, SeriesInfo } from './types'
 
 const accountLabel = (a?: AccountSettings) => (a ? (a.displayName ? `${a.displayName} (${a.email})` : a.email) : '')
 
@@ -70,10 +71,24 @@ export function EventDetails({ event, onClose, onEdit }: { event: ShownEvent; on
       setResponse(r)
     })
 
+  const [askScope, setAskScope] = useState(false)
   const remove = () => {
-    const msg = event.seriesId ? t('calendar.confirmDeleteOccurrence') : event.attendees.length && event.isOrganizer ? t('calendar.confirmDeleteMeeting') : t('calendar.confirmDelete')
+    if (event.seriesId) return setAskScope(true)
+    const msg = event.attendees.length && event.isOrganizer ? t('calendar.confirmDeleteMeeting') : t('calendar.confirmDelete')
     if (confirm(msg)) void run('delete', () => calendarActions.remove(event), true)
   }
+
+  if (askScope)
+    return (
+      <SeriesScopeDialog
+        title={t('calendar.deleteRecurring')}
+        options={['one', 'following', 'all']}
+        confirmLabel={t('calendar.delete')}
+        note={event.attendees.length && event.isOrganizer ? t('calendar.guestsNotified') : undefined}
+        onCancel={() => setAskScope(false)}
+        onConfirm={(scope) => calendarActions.remove(event, scope).then(onClose)}
+      />
+    )
 
   const locationIsUrl = /^https?:\/\/\S+$/.test(event.location.trim())
 
@@ -202,6 +217,72 @@ export function EventDetails({ event, onClose, onEdit }: { event: ShownEvent; on
   )
 }
 
+type Scope = 'one' | 'following' | 'all'
+
+/** Asks which occurrences of a recurring event an action applies to. */
+function SeriesScopeDialog({
+  title,
+  options,
+  confirmLabel,
+  note,
+  onCancel,
+  onConfirm,
+}: {
+  title: string
+  options: Scope[]
+  confirmLabel: string
+  note?: string
+  onCancel: () => void
+  onConfirm: (scope: Scope) => Promise<void>
+}) {
+  const { t } = useTranslation()
+  const [scope, setScope] = useState<Scope>('one')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const go = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      await onConfirm(scope)
+    } catch (e) {
+      setError((e as Error).message)
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog
+      open
+      onClose={onCancel}
+      title={title}
+      className="event-dialog"
+      actions={
+        <>
+          <Button variant="text" onClick={onCancel} disabled={busy}>
+            {t('calendar.cancel')}
+          </Button>
+          <Button onClick={() => void go()} disabled={busy}>
+            {busy ? <Spinner size={16} /> : confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      <div className="scope-options" role="radiogroup">
+        {options.map((o) => (
+          <label key={o} className="checkbox">
+            <input type="radio" name="scope" checked={scope === o} onChange={() => setScope(o)} /> {t(`calendar.scope.${o}`)}
+          </label>
+        ))}
+      </div>
+      {note && <p className="body-small muted">{note}</p>}
+      {error && (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      )}
+    </Dialog>
+  )
+}
+
 export type EditorTarget = { mode: 'create'; start: number; end: number; allDay: boolean } | { mode: 'edit'; event: ShownEvent }
 
 function meetingValue(c: MeetingChoice) {
@@ -245,7 +326,24 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
   // All-day ends are exclusive in the providers but shown inclusive here.
   const [endDate, setEndDate] = useState(toDateKey(existing?.allDay || (target.mode === 'create' && target.allDay) ? addDays(endTs, -1) : endTs))
   const [endTime, setEndTime] = useState(toTimeKey(endTs))
-  const [repeat, setRepeat] = useState<Repeat>('none')
+  const [repeat, setRepeat] = useState<Repeat | 'custom'>('none')
+  const [until, setUntil] = useState('')
+
+  // Recurring events: edit this occurrence or the whole series.
+  const [scope, setScope] = useState<'one' | 'all'>('one')
+  const seriesMode = scope === 'all' && !!existing?.seriesId
+  const series = useQuery({
+    queryKey: ['cal', 'series', existing?.accountId, existing?.seriesId],
+    enabled: seriesMode,
+    queryFn: () => calendarFor(existing!.accountId).series(existing!.accountId, existing!.calendarId, existing!.seriesId!),
+  })
+  const seriesInfo: SeriesInfo | undefined = seriesMode ? series.data : undefined
+  useEffect(() => {
+    if (!seriesInfo) return
+    setRepeat(seriesInfo.repeat)
+    setUntil(seriesInfo.until !== undefined ? toDateKey(seriesInfo.until) : '')
+  }, [seriesInfo])
+  const showRepeat = !existing || seriesMode
   const [location, setLocation] = useState(existing?.location ?? '')
   const [attendees, setAttendees] = useState<Address[]>(existing?.attendees.map((a) => ({ name: a.name, email: a.email })) ?? [])
   const initialDescription = useMemo(() => (existing ? htmlToPlain(existing.descriptionHtml) : ''), [existing])
@@ -308,10 +406,14 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
     if (!(end > start) && !(allDay && end >= start)) return setError(t('calendar.endBeforeStart'))
     const bad = attendees.find((a) => !isValidEmail(a.email))
     if (bad) return setError(t('calendar.invalidGuest', { address: bad.email }))
+    const untilTs = repeat !== 'none' && repeat !== 'custom' && until ? fromDateKey(until) : undefined
+    if (seriesMode && !seriesInfo) return setError(t('calendar.seriesLoading'))
+    const firstDay = seriesInfo ? startOfDay(seriesInfo.start) : startOfDay(start)
+    if (untilTs !== undefined && untilTs < firstDay) return setError(t('calendar.untilBeforeStart'))
     setSaving(true)
     try {
       const [accountId, calendarId] = [calKey.slice(0, calKey.indexOf('|')), calKey.slice(calKey.indexOf('|') + 1)]
-      const draft: EventDraft = { title, start, end, allDay, location, attendees, repeat }
+      const draft: EventDraft = { title, start, end, allDay, location, attendees, repeat, repeatUntil: untilTs }
       if (description !== initialDescription || !existing) draft.description = description
       if (canAddMeeting && meeting.kind !== 'none') {
         if (!external) draft.nativeMeeting = true
@@ -324,14 +426,19 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
       if (existing) {
         const changes: Partial<EventDraft> = {}
         if (title !== existing.title) changes.title = title
-        if (start !== existing.start || end !== existing.end || allDay !== existing.allDay) Object.assign(changes, { start, end, allDay })
+        if (seriesInfo) {
+          // The series keeps its first date; times, length and repeat change for every occurrence.
+          const masterStart = allDay ? startOfDay(seriesInfo.start) : withTime(startOfDay(seriesInfo.start), startTime)
+          Object.assign(changes, { start: masterStart, end: masterStart + (end - start), allDay })
+          if (repeat !== seriesInfo.repeat || untilTs !== seriesInfo.until) Object.assign(changes, { repeat, repeatUntil: untilTs })
+        } else if (start !== existing.start || end !== existing.end || allDay !== existing.allDay) Object.assign(changes, { start, end, allDay })
         if (location !== existing.location || draft.externalMeeting) changes.location = location
         const before = existing.attendees.map((a) => a.email.toLowerCase()).sort().join(',')
         if (attendees.map((a) => a.email.toLowerCase()).sort().join(',') !== before) changes.attendees = attendees
         if (draft.description !== undefined) changes.description = draft.description
         if (draft.nativeMeeting) changes.nativeMeeting = true
         if (draft.externalMeeting) changes.externalMeeting = draft.externalMeeting
-        if (Object.keys(changes).length) await calendarActions.update(existing as CalEvent, changes)
+        if (Object.keys(changes).length) await calendarActions.update(existing as CalEvent, changes, seriesMode)
       } else {
         await calendarActions.create(accountId, calendarId, draft)
       }
@@ -379,7 +486,20 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
           onChange={(e) => setTitle(e.target.value)}
           autoFocus
         />
-        {existing?.seriesId && <p className="body-small muted">{t('calendar.occurrenceOnly')}</p>}
+        {existing?.seriesId && (
+          <div className="scope-options scope-options--inline" role="radiogroup" aria-label={t('calendar.recurring')}>
+            {(['one', 'all'] as const).map((o) => (
+              <label key={o} className="checkbox">
+                <input type="radio" name="edit-scope" checked={scope === o} onChange={() => setScope(o)} /> {t(`calendar.scope.${o}`)}
+              </label>
+            ))}
+            <p className="body-small muted">
+              {seriesMode ? t('calendar.seriesHint') : t('calendar.occurrenceOnly')}
+            </p>
+            {seriesMode && series.isLoading && <Spinner size={16} />}
+            {seriesMode && series.error && <p className="field-error">{(series.error as Error).message}</p>}
+          </div>
+        )}
 
         <label className="event-form__row">
           <Icon name="calendar_month" />
@@ -400,7 +520,7 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
           <Icon name="schedule" />
           <div className="event-form__times">
             <span className="event-form__pair">
-              <input type="date" className="select" value={startDate} aria-label={t('calendar.startDate')} onChange={(e) => {
+              <input type="date" className="select" value={startDate} disabled={seriesMode} aria-label={t('calendar.startDate')} onChange={(e) => {
                 const prev = fromDateKey(startDate)
                 const next = fromDateKey(e.target.value)
                 setStartDate(e.target.value)
@@ -417,20 +537,35 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
             </span>
             <span aria-hidden>–</span>
             <span className="event-form__pair">
-              <input type="date" className="select" value={endDate} aria-label={t('calendar.endDate')} onChange={(e) => setEndDate(e.target.value)} />
+              <input type="date" className="select" value={endDate} disabled={seriesMode} aria-label={t('calendar.endDate')} onChange={(e) => setEndDate(e.target.value)} />
               {!allDay && <input type="time" className="select" value={endTime} aria-label={t('calendar.endTime')} onChange={(e) => setEndTime(e.target.value)} />}
             </span>
             <label className="checkbox">
               <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} /> {t('calendar.allDay')}
             </label>
-            {!existing && (
-              <select className="select" value={repeat} onChange={(e) => setRepeat(e.target.value as Repeat)} aria-label={t('calendar.repeat')}>
-                {(['none', 'daily', 'weekly', 'monthly', 'yearly'] as Repeat[]).map((r) => (
-                  <option key={r} value={r}>
-                    {t(`calendar.repeats.${r}`)}
-                  </option>
-                ))}
-              </select>
+            {showRepeat && (
+              <span className="event-form__pair">
+                <select
+                  className="select"
+                  value={repeat}
+                  disabled={seriesMode && !seriesInfo}
+                  onChange={(e) => setRepeat(e.target.value as Repeat | 'custom')}
+                  aria-label={t('calendar.repeat')}
+                >
+                  {(['none', 'daily', 'weekly', 'monthly', 'yearly'] as Repeat[]).map((r) => (
+                    <option key={r} value={r}>
+                      {t(`calendar.repeats.${r}`)}
+                    </option>
+                  ))}
+                  {seriesInfo?.repeat === 'custom' && <option value="custom">{t('calendar.repeats.custom')}</option>}
+                </select>
+                {repeat !== 'none' && repeat !== 'custom' && (
+                  <label className="checkbox">
+                    {t('calendar.until')}
+                    <input type="date" className="select" value={until} min={startDate} onChange={(e) => setUntil(e.target.value)} aria-label={t('calendar.until')} />
+                  </label>
+                )}
+              </span>
             )}
           </div>
         </div>

@@ -47,6 +47,17 @@ export interface CalEvent {
 
 export type Repeat = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly'
 
+/** A recurring series as a whole (its first occurrence and its rule). */
+export interface SeriesInfo {
+  start: number
+  end: number
+  allDay: boolean
+  /** 'custom' for rules the editor cannot show (e.g. every 2 weeks on Mon and Thu): kept as they are */
+  repeat: Repeat | 'custom'
+  /** Local midnight of the last day of the series, if it ends on a date */
+  until?: number
+}
+
 /** Online meeting for a new event: none, Teams from a Microsoft account, or Meet from a Google account. */
 export type MeetingChoice = { kind: 'none' } | { kind: 'teams'; accountId: string } | { kind: 'meet'; accountId: string }
 
@@ -59,7 +70,10 @@ export interface EventDraft {
   /** Plain text; only sent when changed, so rich invitation bodies are not overwritten */
   description?: string
   attendees: Address[]
-  repeat: Repeat
+  /** On create: the repeat rule. On update: only sent when set (series edits). 'custom' keeps the rule. */
+  repeat: Repeat | 'custom'
+  /** Last day of a repeating event (local midnight); undefined = no end */
+  repeatUntil?: number
   /** A meeting link created in another account, to add to the event */
   externalMeeting?: { url: string; provider: MeetingProvider }
   /** Ask the event's own provider to add Teams (Microsoft) or Meet (Google) */
@@ -73,6 +87,10 @@ export interface CalendarProvider {
   /** Updates one event (for a recurring series: only this occurrence) */
   update(accountId: string, calendarId: string, eventId: string, draft: Partial<EventDraft>): Promise<void>
   remove(accountId: string, calendarId: string, eventId: string): Promise<void>
+  /** The series an occurrence belongs to */
+  series(accountId: string, calendarId: string, seriesId: string): Promise<SeriesInfo>
+  /** Ends a series just before the given occurrence (deletes it all if it is the first one) */
+  endSeriesBefore(accountId: string, calendarId: string, seriesId: string, occurrenceStart: number): Promise<void>
   respond(accountId: string, calendarId: string, event: CalEvent, response: 'accepted' | 'tentative' | 'declined'): Promise<void>
   /** Creates a stand-alone meeting link in this account (for an event in another account) */
   createMeetingLink(accountId: string, title: string, start: number, end: number): Promise<string>

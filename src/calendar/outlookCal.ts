@@ -1,7 +1,7 @@
 import { ONLINE_MEETING_SCOPES } from '../auth/msal'
 import { graph, type GraphPage } from '../providers/graph'
-import { localDate, toDateKey, toTimeKey } from './dates'
-import { findMeetingLink, type CalEvent, type CalendarInfo, type CalendarProvider, type EventDraft, type Response } from './types'
+import { addDays, localDate, startOfDay, toDateKey, toTimeKey } from './dates'
+import { findMeetingLink, type CalEvent, type CalendarInfo, type CalendarProvider, type EventDraft, type Response, type SeriesInfo } from './types'
 
 /** Outlook calendars via Microsoft Graph. */
 
@@ -112,8 +112,18 @@ function dateTime(t: number, allDay: boolean): GDateTime {
 
 const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 
-function recurrence(d: EventDraft) {
-  if (d.repeat === 'none') return undefined
+interface GRecurrence {
+  pattern: { type: string; interval?: number; daysOfWeek?: string[]; dayOfMonth?: number; month?: number; index?: string }
+  range: { type: string; startDate: string; endDate?: string; numberOfOccurrences?: number; recurrenceTimeZone?: string }
+}
+
+/** Recurrence for a new event, or for a series edit (where 'none' turns it into a single occurrence). */
+function recurrence(d: EventDraft, existing: boolean): GRecurrence | undefined {
+  if (d.repeat === 'custom') return undefined
+  if (d.repeat === 'none') {
+    if (!existing) return undefined
+    return { pattern: { type: 'daily', interval: 1 }, range: { type: 'numbered', startDate: toDateKey(d.start), numberOfOccurrences: 1 } }
+  }
   const s = new Date(d.start)
   const pattern =
     d.repeat === 'daily'
@@ -123,7 +133,10 @@ function recurrence(d: EventDraft) {
         : d.repeat === 'monthly'
           ? { type: 'absoluteMonthly', interval: 1, dayOfMonth: s.getDate() }
           : { type: 'absoluteYearly', interval: 1, dayOfMonth: s.getDate(), month: s.getMonth() + 1 }
-  return { pattern, range: { type: 'noEnd', startDate: toDateKey(d.start) } }
+  const range = d.repeatUntil
+    ? { type: 'endDate', startDate: toDateKey(d.start), endDate: toDateKey(d.repeatUntil) }
+    : { type: 'noEnd', startDate: toDateKey(d.start) }
+  return { pattern, range }
 }
 
 function textToHtml(text: string) {
@@ -131,7 +144,7 @@ function textToHtml(text: string) {
   return esc.replace(/https?:\/\/[^\s<]+/g, (u) => `<a href="${u}">${u}</a>`).replace(/\n/g, '<br>')
 }
 
-function body(d: Partial<EventDraft>) {
+function body(d: Partial<EventDraft>, existing = false) {
   const out: Record<string, unknown> = {}
   if (d.title !== undefined) out.subject = d.title
   if (d.start !== undefined && d.end !== undefined && d.allDay !== undefined) {
@@ -154,7 +167,7 @@ function body(d: Partial<EventDraft>) {
     out.onlineMeetingProvider = 'teamsForBusiness'
   }
   if (d.repeat && d.start !== undefined) {
-    const r = recurrence(d as EventDraft)
+    const r = recurrence(d as EventDraft, existing)
     if (r) out.recurrence = r
   }
   return out
@@ -197,12 +210,59 @@ export const outlookCalendar: CalendarProvider = {
   },
 
   async update(accountId, _calendarId, eventId, draft) {
-    await graph(accountId, `/me/events/${encodeURIComponent(eventId)}`, { method: 'PATCH', body: body({ ...draft, repeat: undefined }) })
+    await graph(accountId, `/me/events/${encodeURIComponent(eventId)}`, { method: 'PATCH', body: body(draft, true) })
   },
 
   async remove(accountId, _calendarId, eventId) {
     // For meetings you organise, Outlook sends the cancellation to the attendees.
     await graph(accountId, `/me/events/${encodeURIComponent(eventId)}`, { method: 'DELETE' })
+  },
+
+  async series(accountId, _calendarId, seriesId) {
+    const e = await graph<GEvent & { recurrence?: GRecurrence }>(
+      accountId,
+      `/me/events/${encodeURIComponent(seriesId)}?$select=start,end,isAllDay,recurrence`,
+      { headers: PREFER },
+    )
+    const allDay = !!e.isAllDay
+    const p = e.recurrence?.pattern
+    const simple = (p?.interval ?? 1) === 1 && (p?.daysOfWeek?.length ?? 1) <= 1
+    const repeat: SeriesInfo['repeat'] = !p || !simple
+      ? 'custom'
+      : p.type === 'daily'
+        ? 'daily'
+        : p.type === 'weekly'
+          ? 'weekly'
+          : p.type === 'absoluteMonthly'
+            ? 'monthly'
+            : p.type === 'absoluteYearly'
+              ? 'yearly'
+              : 'custom'
+    const r = e.recurrence?.range
+    return {
+      start: parseTime(e.start, allDay),
+      end: parseTime(e.end, allDay),
+      allDay,
+      repeat: r?.type === 'numbered' && r.numberOfOccurrences === 1 ? 'none' : repeat,
+      until: r?.type === 'endDate' && r.endDate ? localDate(r.endDate) : undefined,
+    }
+  },
+
+  async endSeriesBefore(accountId, calendarId, seriesId, occurrenceStart) {
+    const url = `/me/events/${encodeURIComponent(seriesId)}`
+    const e = await graph<{ recurrence?: GRecurrence }>(accountId, `${url}?$select=recurrence`)
+    const rec = e.recurrence
+    const lastDay = addDays(startOfDay(occurrenceStart), -1)
+    if (!rec || localDate(rec.range.startDate) > lastDay) return outlookCalendar.remove(accountId, calendarId, seriesId)
+    await graph(accountId, url, {
+      method: 'PATCH',
+      body: {
+        recurrence: {
+          pattern: rec.pattern,
+          range: { type: 'endDate', startDate: rec.range.startDate, endDate: toDateKey(lastDay), recurrenceTimeZone: rec.range.recurrenceTimeZone },
+        },
+      },
+    })
   },
 
   async respond(accountId, _calendarId, event, r) {

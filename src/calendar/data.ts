@@ -94,13 +94,19 @@ export const calendarActions = {
     toast(i18n.t('calendar.created'))
     void refreshAccount(accountId)
   },
-  async update(e: CalEvent, draft: Partial<EventDraft>) {
-    await calendarFor(e.accountId).update(e.accountId, e.calendarId, e.id, draft)
+  /** Updates one occurrence, or the whole series when `wholeSeries` is set. */
+  async update(e: CalEvent, draft: Partial<EventDraft>, wholeSeries = false) {
+    const id = wholeSeries && e.seriesId ? e.seriesId : e.id
+    await calendarFor(e.accountId).update(e.accountId, e.calendarId, id, draft)
     toast(i18n.t('calendar.saved'))
     void refreshAccount(e.accountId)
   },
-  async remove(e: CalEvent) {
-    await calendarFor(e.accountId).remove(e.accountId, e.calendarId, e.id)
+  /** Deletes one event; for a recurring one also "this and following" or the whole series. */
+  async remove(e: CalEvent, scope: 'one' | 'following' | 'all' = 'one') {
+    const p = calendarFor(e.accountId)
+    if (scope === 'all' && e.seriesId) await p.remove(e.accountId, e.calendarId, e.seriesId)
+    else if (scope === 'following' && e.seriesId) await p.endSeriesBefore(e.accountId, e.calendarId, e.seriesId, e.start)
+    else await p.remove(e.accountId, e.calendarId, e.id)
     toast(i18n.t('calendar.deleted'))
     void refreshAccount(e.accountId)
   },

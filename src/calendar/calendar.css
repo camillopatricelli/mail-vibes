@@ -161,3 +161,8 @@
 .today-list li:has(.today-agenda__join) > a:first-child { flex: 1; min-width: 0; }
 .today-agenda__join { flex: none; margin-right: 8px; }
 .today-agenda__pending { color: var(--md-sys-color-primary); }
+
+/* ---------- Recurring events: scope choice ---------- */
+.scope-options { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 8px; }
+.scope-options--inline { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 0; }
+.scope-options--inline p { flex-basis: 100%; margin: 0; }

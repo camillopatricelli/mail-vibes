@@ -1,7 +1,7 @@
 import { google } from '../providers/google'
-import { localDate, toDateKey } from './dates'
+import { addDays, localDate, startOfDay, toDateKey } from './dates'
 import { textToHtml } from './outlookCal'
-import { findMeetingLink, type CalEvent, type CalendarInfo, type CalendarProvider, type EventDraft, type Response } from './types'
+import { findMeetingLink, type CalEvent, type CalendarInfo, type CalendarProvider, type EventDraft, type Response, type SeriesInfo } from './types'
 
 /** Google Calendar via the Calendar REST API (and the Meet REST API for stand-alone Meet links). */
 
@@ -92,14 +92,25 @@ function gTime(t: number, allDay: boolean): GTime {
   return allDay ? { date: toDateKey(t) } : { dateTime: new Date(t).toISOString(), timeZone: timeZone() }
 }
 
-const RRULE: Record<Exclude<EventDraft['repeat'], 'none'>, string> = {
-  daily: 'RRULE:FREQ=DAILY',
-  weekly: 'RRULE:FREQ=WEEKLY',
-  monthly: 'RRULE:FREQ=MONTHLY',
-  yearly: 'RRULE:FREQ=YEARLY',
+const FREQ = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' } as const
+
+/** RRULE UNTIL value: a date for all-day events, otherwise a UTC date-time. */
+function untilValue(t: number, allDay: boolean) {
+  if (allDay) return toDateKey(t).replace(/-/g, '')
+  return new Date(t).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
 }
 
-function body(d: Partial<EventDraft>) {
+/** The recurrence lines for a new event or a series edit (undefined = leave as is). */
+function recurrence(d: Partial<EventDraft>, existing: boolean): string[] | undefined {
+  if (!d.repeat || d.repeat === 'custom') return undefined
+  // A series edited to "does not repeat" keeps only its first occurrence.
+  if (d.repeat === 'none') return existing ? ['RRULE:FREQ=DAILY;COUNT=1'] : undefined
+  // The series ends at the end of its last day (local time).
+  const until = d.repeatUntil !== undefined ? `;UNTIL=${untilValue(d.allDay ? d.repeatUntil : addDays(d.repeatUntil, 1) - 1000, !!d.allDay)}` : ''
+  return [`RRULE:FREQ=${FREQ[d.repeat]}${until}`]
+}
+
+function body(d: Partial<EventDraft>, existing = false) {
   const out: Record<string, unknown> = {}
   if (d.title !== undefined) out.summary = d.title
   if (d.start !== undefined && d.end !== undefined && d.allDay !== undefined) {
@@ -114,7 +125,8 @@ function body(d: Partial<EventDraft>) {
   if (d.attendees !== undefined) out.attendees = d.attendees.map((a) => ({ email: a.email, displayName: a.name || undefined }))
   if (d.nativeMeeting)
     out.conferenceData = { createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: 'hangoutsMeet' } } }
-  if (d.repeat && d.repeat !== 'none') out.recurrence = [RRULE[d.repeat]]
+  const rec = recurrence(d, existing)
+  if (rec) out.recurrence = rec
   return out
 }
 
@@ -166,12 +178,45 @@ export const googleCalendar: CalendarProvider = {
   async update(accountId, calendarId, eventId, draft) {
     await google(accountId, `${cal(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=all&conferenceDataVersion=1`, {
       method: 'PATCH',
-      body: body({ ...draft, repeat: undefined }),
+      body: body(draft, true),
     })
   },
 
   async remove(accountId, calendarId, eventId) {
     await google(accountId, `${cal(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=all`, { method: 'DELETE' })
+  },
+
+  async series(accountId, calendarId, seriesId) {
+    const e = await google<GEvent & { recurrence?: string[] }>(
+      accountId,
+      `${cal(calendarId)}/events/${encodeURIComponent(seriesId)}?fields=start,end,recurrence`,
+    )
+    const rule = (e.recurrence ?? []).find((r) => r.startsWith('RRULE:')) ?? ''
+    const parts = Object.fromEntries(rule.slice(6).split(';').map((p) => p.split('=') as [string, string]))
+    const simple = (!parts.INTERVAL || parts.INTERVAL === '1') && !parts.BYSETPOS && (!parts.BYDAY || !parts.BYDAY.includes(',')) && (e.recurrence ?? []).length === 1
+    const byFreq: Record<string, SeriesInfo['repeat']> = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' }
+    let repeat: SeriesInfo['repeat'] = simple ? (byFreq[parts.FREQ] ?? 'custom') : 'custom'
+    if (parts.COUNT === '1') repeat = 'none'
+    // A plain monthly rule on a weekday ("every 2nd Tuesday") is not the "same date" rule the editor offers.
+    if (repeat === 'monthly' && parts.BYDAY) repeat = 'custom'
+    let until: number | undefined
+    if (parts.UNTIL) {
+      const m = /^(\d{4})(\d{2})(\d{2})(T(\d{2})(\d{2})(\d{2})Z?)?$/.exec(parts.UNTIL)
+      if (m) until = startOfDay(m[4] ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[5], +m[6], +m[7]) : new Date(+m[1], +m[2] - 1, +m[3]).getTime())
+    }
+    return { start: parseTime(e.start), end: parseTime(e.end), allDay: !!e.start?.date, repeat, until }
+  },
+
+  async endSeriesBefore(accountId, calendarId, seriesId, occurrenceStart) {
+    const url = `${cal(calendarId)}/events/${encodeURIComponent(seriesId)}`
+    const e = await google<GEvent & { recurrence?: string[] }>(accountId, `${url}?fields=start,recurrence`)
+    const allDay = !!e.start?.date
+    if (parseTime(e.start) >= occurrenceStart || !e.recurrence) return googleCalendar.remove(accountId, calendarId, seriesId)
+    const until = untilValue(allDay ? addDays(startOfDay(occurrenceStart), -1) : occurrenceStart - 1000, allDay)
+    const recurrence = e.recurrence.map((r) =>
+      r.startsWith('RRULE:') ? `${r.replace(/;(UNTIL|COUNT)=[^;]*/g, '')};UNTIL=${until}` : r,
+    )
+    await google(accountId, `${url}?sendUpdates=all`, { method: 'PATCH', body: { recurrence } })
   },
 
   async respond(accountId, calendarId, event, r) {
