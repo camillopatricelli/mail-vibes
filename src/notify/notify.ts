@@ -28,13 +28,15 @@ export interface NotifyOptions {
 }
 
 const icon = () => `${import.meta.env.BASE_URL}icon-192.png`
+/** Android draws the status-bar badge from the image's shape only, so it needs a white-on-transparent one. */
+const badge = () => `${import.meta.env.BASE_URL}badge-96.png`
 
 export async function notify(title: string, o: NotifyOptions = {}) {
   if (permission() !== 'granted') return
   const data = { hash: o.hash ?? '', url: o.joinUrl }
   const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : undefined
   if (reg) {
-    const options: NotificationOptions & { actions?: { action: string; title: string }[] } = { body: o.body, tag: o.tag, icon: icon(), badge: icon(), data }
+    const options: NotificationOptions & { actions?: { action: string; title: string }[] } = { body: o.body, tag: o.tag, icon: icon(), badge: badge(), data }
     if (o.joinUrl) options.actions = [{ action: 'join', title: o.joinLabel ?? 'Join' }]
     await reg.showNotification(title, options)
     return
