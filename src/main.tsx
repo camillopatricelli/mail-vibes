@@ -17,13 +17,36 @@ function isAuthResponse() {
   return /[?&]state=/.test(s) && /[?&](code|error)=/.test(s)
 }
 
+/**
+ * After a full-page sign-in, MSAL goes back to the page where it started. With hash routing that
+ * address often differs from this one only after "#", which changes the hash without loading the
+ * page, so the app never started (a blank page, then a time-out). Reload in that case.
+ */
+const navigationClient = {
+  async navigateInternal(url: string) {
+    const samePage = new URL(url, location.href).href.split('#')[0] === location.href.split('#')[0]
+    location.replace(url)
+    if (samePage) location.reload()
+    return true
+  },
+  async navigateExternal(url: string) {
+    location.assign(url)
+    return true
+  },
+}
+
 async function start() {
   if (isAuthResponse()) {
     const { broadcastResponseToMainFrame } = await import('@azure/msal-browser/redirect-bridge')
     try {
-      await broadcastResponseToMainFrame()
+      await broadcastResponseToMainFrame(navigationClient)
     } catch (e) {
-      document.body.textContent = `Sign-in could not be completed: ${(e as Error).message}`
+      // Say what happened and offer a way back, rather than leaving a page with no way out.
+      document.body.textContent = `Sign-in could not be completed: ${(e as Error).message} `
+      const back = document.createElement('a')
+      back.href = import.meta.env.BASE_URL
+      back.textContent = 'Back to Mail Vibes'
+      document.body.append(back)
     }
     return
   }
