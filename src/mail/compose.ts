@@ -44,6 +44,8 @@ export interface Composer {
   note?: string
   /** Files forwarded from another account, attached again if the sending account changes */
   forwardFiles?: File[]
+  /** Forwarded from an account that can't send (see openForwardFrom) */
+  forwardFrom?: boolean
 }
 
 interface ComposeState {
@@ -207,6 +209,7 @@ export async function openForwardFrom(message: MailMessage) {
     saveState: 'dirty',
     minimized: false,
     note: message.pec ? t('imap.pecForwardNote') : undefined,
+    forwardFrom: true,
   })
   scheduleSave(id)
   try {
@@ -386,8 +389,10 @@ export async function closeKeep(id: string) {
   if (!c) return
   if (c.phase === 'sending') return
   // A reply/forward nobody typed into is discarded (as Gmail does); so is an untouched new message.
-  const empty =
-    c.mode === 'new'
+  const c0 = c.content
+  const empty = c.forwardFrom
+    ? !c0.to.length && !c0.cc.length && !c0.bcc.length && c0.html === c.initialHtml
+    : c.mode === 'new'
       ? isEmpty(c.content) && !c.attachments.length
       : c.mode !== 'draft' && !htmlToText(c.content.html) && !/<img/i.test(c.content.html)
   if (empty) return discard(id, true)
