@@ -27,6 +27,8 @@ import { NotYetError, session, type Ctx } from './session'
 const threadFolders = new Map<string, Set<string>>()
 /** Messages listed for each thread (PEC accounts open threads from these, without searching) */
 const threadMessages = new Map<string, Set<string>>()
+/** When each PEC account's latest sent messages were last listed (see thread) */
+const sentPrimed = new Map<string, number>()
 /** Where moved messages came from (new id -> old folder), so "Undo" from Starred or a search puts them back */
 const movedFrom = new Map<string, string>()
 /** Whole messages already downloaded and parsed (a few, for attachments and re-opening) */
@@ -274,6 +276,12 @@ export const imap: MailProvider = {
         const ref = parseMessageId(t.message)
         summaries = await fetchByUid(ctx, accountId, ref.path, [ref.uid])
       } else if (ctx.account.imap?.pec && threadMessages.get(cacheKey(accountId, threadId))?.size) {
+        // Receipts belong with the message they're about, usually among the latest in Sent: list
+        // those (a quick fetch, unlike a header search) so they join the conversation.
+        if (special.sent && Date.now() - (sentPrimed.get(accountId) ?? 0) > 120_000) {
+          await listFolder(ctx, accountId, special.sent, 100)
+          sentPrimed.set(accountId, Date.now())
+        }
         for (const [path, ids] of groupByFolder([...threadMessages.get(cacheKey(accountId, threadId))!])) {
           const box = await ctx.select(path)
           const uids = ids.map(parseMessageId).filter((r) => r.uidValidity === box.uidValidity).map((r) => r.uid)

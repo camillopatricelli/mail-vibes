@@ -50,10 +50,10 @@ const SPECIAL_USE: Record<string, SpecialFolder> = {
 
 /** Common names, for servers that don't mark special folders (lower case, readable). */
 const NAMES: Record<SpecialFolder, string[]> = {
-  sent: ['sent', 'sent items', 'sent messages', 'sent mail', 'posta inviata', 'inviata', 'inviati', 'elementi inviati', 'gesendet', 'gesendete elemente', 'envoyés', 'éléments envoyés', 'enviados'],
+  sent: ['sent', 'sent items', 'sent messages', 'sent mail', 'posta inviata', 'inviata', 'inviati', 'spedite', 'posta spedita', 'messaggi spediti', 'elementi inviati', 'gesendet', 'gesendete elemente', 'envoyés', 'éléments envoyés', 'enviados'],
   drafts: ['drafts', 'draft', 'bozze', 'entwürfe', 'brouillons', 'borradores'],
   trash: ['trash', 'deleted', 'deleted items', 'deleted messages', 'cestino', 'posta eliminata', 'elementi eliminati', 'papierkorb', 'gelöschte elemente', 'corbeille', 'papelera'],
-  spam: ['junk', 'junk e-mail', 'junk email', 'spam', 'posta indesiderata', 'indesiderata', 'posta indesiderata', 'courrier indésirable'],
+  spam: ['junk', 'junk e-mail', 'junk email', 'spam', 'posta indesiderata', 'indesiderata', 'courrier indésirable'],
   archive: ['archive', 'archives', 'archivio', 'archiv'],
 }
 
