@@ -430,7 +430,9 @@ export function TasksPage() {
       { key: 'later', title: t('tasks.later'), test: (d) => d !== undefined && d >= addDays(today, 8) },
       { key: 'none', title: t('tasks.noDate'), test: (d) => d === undefined },
     ]
-    return buckets.map((b) => ({ key: b.key, title: b.title, accountId: undefined as string | undefined, items: openTasks.filter((x) => b.test(x.due)).sort(byDue) }))
+    // A multi-day task that is under way belongs with today's tasks, whatever its due date.
+    const groupDate = (x: ShownTask) => (x.start !== undefined && x.due !== undefined && x.start <= today && today <= x.due ? today : x.due)
+    return buckets.map((b) => ({ key: b.key, title: b.title, accountId: undefined as string | undefined, items: openTasks.filter((x) => b.test(groupDate(x))).sort(byDue) }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group, tasks, lists, t])
 
