@@ -13,7 +13,8 @@ export function TodayTasks() {
   const [open, setOpen] = useState<ShownTask | null>(null)
   const today = startOfDay(Date.now())
   const due = tasks
-    .filter((x) => !x.completed && x.due !== undefined && x.due <= today)
+    // Due today or earlier, or a multi-day task that is under way today.
+    .filter((x) => !x.completed && x.due !== undefined && (x.due <= today || (x.start !== undefined && x.start <= today)))
     .sort((a, b) => (a.due ?? 0) - (b.due ?? 0) || a.title.localeCompare(b.title))
   if (!accounts.length) return <p className="body-medium muted">{t('placeholder.nothing')}</p>
   if (isLoading && !tasks.length) return <Spinner label={t('mail.loading')} />

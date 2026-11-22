@@ -68,7 +68,7 @@ const en = {
     tasks: 'Your task lists from every account will appear here.',
     todayMail: 'New and unread mail',
     todayAgenda: "Today's agenda",
-    todayTasks: 'Tasks due or overdue',
+    todayTasks: 'Tasks due, overdue or under way',
     nothing: 'Nothing here yet.',
   },
   settings: {
@@ -472,6 +472,7 @@ const en = {
     consentFailed: 'Could not get the permission: {{reason}}',
   },
   tasks: {
+    dayOf: 'day {{day}} of {{total}}',
     start: 'Start date',
     dueSameAsStart: 'Without a due date, the task is due on its start date.',
     startAfterDue: 'The start date must be on or before the due date.',

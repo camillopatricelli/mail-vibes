@@ -15,6 +15,11 @@ import { defaultListKey, listKey, taskActions, toggleTaskList, useTaskLists, use
 type Group = 'date' | 'list'
 
 /** "Today", "Tomorrow", "Mon 24 Nov" … */
+/** Whole calendar days from a to b (both local midnights; rounding absorbs daylight-saving shifts). */
+function daysBetween(a: number, b: number) {
+  return Math.round((b - a) / 86_400_000)
+}
+
 export function dueLabel(due: number, t: (k: string) => string) {
   const today = startOfDay(Date.now())
   if (due === today) return t('tasks.today')
@@ -32,7 +37,13 @@ function reminderLabel(at: number, t: (k: string) => string) {
 export function TaskRow({ task, onOpen, showList }: { task: ShownTask; onOpen: (t: ShownTask) => void; showList?: boolean }) {
   const { t } = useTranslation()
   const account = useSettings((s) => s.accounts.find((a) => a.id === task.accountId))
-  const overdue = !task.completed && task.due !== undefined && task.due < startOfDay(Date.now())
+  const today = startOfDay(Date.now())
+  const overdue = !task.completed && task.due !== undefined && task.due < today
+  // Multi-day task under way: "day 3 of 10".
+  const span =
+    task.start !== undefined && task.due !== undefined && !task.completed && task.start <= today && today <= task.due
+      ? { day: daysBetween(task.start, today) + 1, total: daysBetween(task.start, task.due) + 1 }
+      : null
   const notes = task.mail ? notesWithoutMail(task.notes) : task.notes
   return (
     <li className={['task-row', task.completed && 'is-completed', task.parentId && 'is-subtask'].filter(Boolean).join(' ')} style={{ borderLeftColor: task.accountColor }}>
@@ -52,9 +63,10 @@ export function TaskRow({ task, onOpen, showList }: { task: ShownTask; onOpen: (
         {(task.due !== undefined || task.reminder !== undefined || showList) && (
           <span className="task-row__meta">
             {task.due !== undefined && (
-              <span className={['task-chip label-medium', overdue && 'is-overdue'].filter(Boolean).join(' ')}>
-                <Icon name="event" size={14} />
+              <span className={['task-chip label-medium', overdue && 'is-overdue', span && 'is-ongoing'].filter(Boolean).join(' ')}>
+                <Icon name={task.start !== undefined ? 'date_range' : 'event'} size={14} />
                 {task.start !== undefined ? `${dueLabel(task.start, t)} – ${dueLabel(task.due, t)}` : dueLabel(task.due, t)}
+                {span && <span className="task-chip__progress">{t('tasks.dayOf', { day: span.day, total: span.total })}</span>}
               </span>
             )}
             {task.reminder !== undefined && !task.completed && (

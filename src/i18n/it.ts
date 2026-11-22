@@ -70,7 +70,7 @@ const it: Messages = {
     tasks: 'Qui compariranno gli elenchi di attività di tutti gli account.',
     todayMail: 'Posta nuova e non letta',
     todayAgenda: 'Agenda di oggi',
-    todayTasks: 'Attività in scadenza o scadute',
+    todayTasks: 'Attività in scadenza, scadute o in corso',
     nothing: 'Ancora niente qui.',
   },
   settings: {
@@ -475,6 +475,7 @@ const it: Messages = {
     consentFailed: 'Impossibile ottenere il permesso: {{reason}}',
   },
   tasks: {
+    dayOf: 'giorno {{day}} di {{total}}',
     start: 'Data di inizio',
     dueSameAsStart: 'Senza una scadenza, l\u2019attività scade il giorno di inizio.',
     startAfterDue: 'La data di inizio deve essere uguale o precedente alla scadenza.',
