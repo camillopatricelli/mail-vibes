@@ -24,10 +24,10 @@ In the app registration, open **API permissions** → **Add a permission** → *
 | Permission | Used for |
 | --- | --- |
 | `User.Read` | Name and email of the signed-in user |
-| `Mail.ReadWrite` | Reading, moving and flagging mail; drafts |
+| `Mail.ReadWrite` | Reading, moving and flagging mail; drafts, tags, snooze and send later |
 | `Mail.Send` | Sending mail |
-| `Calendars.ReadWrite` | Calendars, events and invitation replies |
-| `Tasks.ReadWrite` | Microsoft To Do |
+| `Calendars.ReadWrite` | Calendars, events, invitation replies and Teams links on Outlook events |
+| `Tasks.ReadWrite` | Microsoft To Do, including tasks linked to an email |
 | `Contacts.ReadWrite` | Address suggestions and "add to contacts" |
 | `openid`, `profile`, `offline_access` | Sign-in and staying signed in |
 
@@ -50,18 +50,24 @@ Add it as above and grant admin consent again. Mail Vibes asks for it only the f
 someone uses this feature ("Allow" in the event editor); nothing else changes for users who
 don't use it.
 
-### Optional: Outlook category colours
+### Optional: Outlook category colours and mail rules
 
-Tags on Outlook messages are Outlook categories and work with the standard permissions. To show
-the categories with their Outlook colours, and to create new tags as proper Outlook categories
-(with a colour, in the category list), Mail Vibes needs to read and update the mailbox settings:
+Two features need to read and update the mailbox settings:
+
+- **Tag colours.** Tags on Outlook messages are Outlook categories and work with the standard
+  permissions. Showing them with their Outlook colours, and creating new tags as proper Outlook
+  categories (with a colour, in the category list), needs this permission.
+- **Mail rules** (Settings → Mail rules). They are saved as the mailbox's own Outlook Inbox rules,
+  so Exchange runs them even when Mail Vibes is closed. Listing, creating, editing and deleting
+  them needs this permission.
 
 | Permission | Used for |
 | --- | --- |
-| `MailboxSettings.ReadWrite` | Reading the category list and adding new categories |
+| `MailboxSettings.ReadWrite` | The category list and new categories; the Inbox rules |
 
 With admin consent it is used automatically. Without it, tags still work, without colours, and
-the tag dialog offers an "Allow" button.
+the tag dialog and the mail rules page offer an "Allow" button. Whether users can allow it
+themselves depends on the organisation's consent policy.
 
 ## 3. Optional settings
 
