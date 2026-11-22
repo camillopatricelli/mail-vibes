@@ -6,8 +6,8 @@ import { useStatus } from '../status/store'
 import { canSend, isMailCapable, providerFor } from './api'
 import { isValidEmail } from './addressBook'
 import { refreshAccountMail } from './data'
-import { htmlToText, sanitizeForEditor } from './html'
-import type { Attachment, DraftContent, DraftRef, MailMessage, ReplyKind } from './types'
+import { escapeHtml, htmlToText, sanitizeForEditor } from './html'
+import type { Address, Attachment, DraftContent, DraftRef, MailMessage, ReplyKind } from './types'
 
 /**
  * Compose windows. Drafts are saved to the user's mailbox (Drafts folder) as they type, so
@@ -40,6 +40,10 @@ export interface Composer {
   /** Error preparing the reply or sending */
   error?: string
   minimized: boolean
+  /** A notice shown above the message (e.g. a forwarded PEC has no legal value) */
+  note?: string
+  /** Files forwarded from another account, attached again if the sending account changes */
+  forwardFiles?: File[]
 }
 
 interface ComposeState {
@@ -170,6 +174,55 @@ export async function openReply(message: MailMessage, kind: ReplyKind) {
   await prepareReply(id)
 }
 
+const who = (a: Address) => escapeHtml(a.name ? `${a.name} <${a.email}>` : a.email)
+
+/**
+ * Forwards a message from an account that can't send (an IMAP account without outgoing server,
+ * e.g. a PEC mailbox): a new message from the default sending account, with the original's text
+ * and attachments. For a PEC, the attachments include the whole certified envelope as proof.
+ */
+export async function openForwardFrom(message: MailMessage) {
+  const accountId = defaultSendAccount()
+  if (!accountId) {
+    useStatus.getState().toast({ tone: 'error', message: t('compose.noAccount') })
+    return
+  }
+  const date = new Date(message.date).toLocaleString(i18n.language, { dateStyle: 'full', timeStyle: 'short' })
+  const html =
+    `<p></p><div class="gmail_quote">${escapeHtml(t('compose.forwardHeader'))}<br>` +
+    `${escapeHtml(t('compose.fieldFrom'))}: ${who(message.from)}<br>` +
+    `${escapeHtml(t('compose.fieldDate'))}: ${escapeHtml(date)}<br>` +
+    `${escapeHtml(t('compose.subject'))}: ${escapeHtml(message.subject)}<br>` +
+    `${escapeHtml(t('compose.to'))}: ${message.to.map(who).join(', ')}<br><br>${sanitizeForEditor(message.bodyHtml)}</div>`
+  const id = newId()
+  useCompose.getState().add({
+    id,
+    accountId,
+    mode: 'new',
+    content: { ...emptyContent(), subject: /^\s*(fwd?|i)\s*:/i.test(message.subject) ? message.subject : `Fwd: ${message.subject}`, html },
+    initialHtml: html,
+    attachments: [],
+    uploads: [],
+    phase: 'ready',
+    saveState: 'dirty',
+    minimized: false,
+    note: message.pec ? t('imap.pecForwardNote') : undefined,
+  })
+  scheduleSave(id)
+  try {
+    const p = providerFor(message.accountId)
+    const files: File[] = []
+    for (const a of (await p.attachments(message.accountId, message.id)).filter((x) => !x.isInline)) {
+      files.push(new File([await p.downloadAttachment(message.accountId, message.id, a.id)], a.name, { type: a.contentType }))
+    }
+    if (!get(id)) return
+    patch(id, { forwardFiles: files })
+    await attachFiles(id, files)
+  } catch (e) {
+    patch(id, { error: t('compose.prepareFailed', { reason: (e as Error).message }) })
+  }
+}
+
 export async function prepareReply(id: string) {
   const c = get(id)
   if (!c || !c.sourceMessageId || c.mode === 'new' || c.mode === 'draft') return
@@ -241,6 +294,8 @@ export async function changeAccount(id: string, accountId: string) {
     patch(id, { accountId, draft: undefined, attachments: [], saveState: 'dirty' })
   })
   scheduleSave(id)
+  const files = get(id)?.forwardFiles
+  if (files?.length) await attachFiles(id, files)
 }
 
 export async function attachFiles(id: string, files: File[]) {

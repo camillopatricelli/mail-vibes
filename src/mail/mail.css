@@ -383,3 +383,14 @@
   .imap-server { grid-template-columns: 1fr 1fr; }
   .imap-server__host { grid-column: 1 / -1; }
 }
+
+/* PEC certification data, above the message body */
+.pec-box { margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-sm); background: var(--md-sys-color-surface-container); }
+.pec-box.is-bad { border-color: var(--md-sys-color-error); }
+.pec-box__head { display: flex; align-items: center; gap: 8px; }
+.pec-badge { padding: 1px 8px; border-radius: var(--md-sys-shape-full); background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+.pec-box.is-bad .pec-badge { background: var(--md-sys-color-error); color: var(--md-sys-color-on-error); }
+.pec-box__rows { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0 0; }
+.pec-box__rows > div { display: contents; }
+.pec-box__rows dd { margin: 0; overflow-wrap: anywhere; }
+.pec-box__note { margin: 8px 0 0; }

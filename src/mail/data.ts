@@ -339,6 +339,12 @@ async function run(
 
 type Item = { accountId: string; id: string }
 
+/** A PEC is a legal record: deleting one from a PEC account needs a second thought. */
+function confirmPecDelete(items: Item[]) {
+  const pecAccounts = new Set(useSettings.getState().accounts.filter((a) => a.imap?.pec).map((a) => a.id))
+  return !items.some((i) => pecAccounts.has(i.accountId)) || confirm(i18n.t('imap.pecDeleteWarning'))
+}
+
 export const mailActions = {
   setRead: (items: Item[], read: boolean) =>
     run(items, { isRead: read }, (a, ids) => providerFor(a).setRead(a, ids, read)),
@@ -347,7 +353,8 @@ export const mailActions = {
   /** `keep`: the messages stay in the current list (e.g. a tag view) */
   archive: (items: Item[], count = items.length, keep = false) =>
     run(items, keep ? {} : 'remove', (a, ids) => providerFor(a).move(a, ids, 'archive'), i18n.t('mail.archived', { count })),
-  trash: (items: Item[], count = items.length) =>
+  trash: async (items: Item[], count = items.length) =>
+    confirmPecDelete(items) &&
     run(items, 'remove', (a, ids) => providerFor(a).move(a, ids, 'trash'), i18n.t('mail.trashed', { count })),
   moveToInbox: (items: Item[], count = items.length) =>
     run(items, 'remove', (a, ids) => providerFor(a).move(a, ids, 'inbox'), i18n.t('mail.movedToInbox', { count })),
@@ -385,6 +392,7 @@ export const mailActions = {
    * `from`, the list they were swiped in; Outlook gives moved messages new ids, so those are kept.
    */
   async moveWithUndo(items: Item[], dest: 'trash' | 'archive', from: ListTarget, count = items.length) {
+    if (dest === 'trash' && !confirmPecDelete(items)) return false
     const t = i18n.t.bind(i18n)
     const moved = new Map<string, string[]>()
     let failed = false

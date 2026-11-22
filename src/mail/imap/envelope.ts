@@ -1,9 +1,10 @@
 import { decodeWords } from 'postal-mime'
 import type { Address } from '../types'
 import { asList, asText, type ImapValue } from './parse'
+import { pecHeaders, type PecHeaders } from './pec'
 
 /** What the message lists need from FETCH, without downloading the message. */
-export const SUMMARY_ITEMS = '(UID FLAGS INTERNALDATE RFC822.SIZE ENVELOPE BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (REFERENCES)])'
+export const SUMMARY_ITEMS = '(UID FLAGS INTERNALDATE RFC822.SIZE ENVELOPE BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (REFERENCES X-TRASPORTO X-RICEVUTA X-RIFERIMENTO-MESSAGE-ID)])'
 
 export interface FetchedSummary {
   uid: number
@@ -20,6 +21,8 @@ export interface FetchedSummary {
   inReplyTo?: string
   references: string[]
   hasAttachments: boolean
+  /** PEC envelope or receipt headers, if any */
+  pec?: PecHeaders
 }
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
@@ -58,9 +61,12 @@ export function envelopeAddresses(v: ImapValue | undefined): Address[] {
 /** Message-IDs in a header value ("<a@x> <b@y>"), in order. */
 export const messageIds = (v: string | undefined) => (v ?? '').match(/<[^<>\s]+>/g) ?? []
 
-/** The thread a message belongs to: the first id of References, else In-Reply-To, else its own id. */
-export const threadRoot = (s: Pick<FetchedSummary, 'references' | 'inReplyTo' | 'messageId'>) =>
-  s.references[0] ?? messageIds(s.inReplyTo)[0] ?? s.messageId
+/**
+ * The thread a message belongs to: the first id of References, else In-Reply-To, else (PEC
+ * receipts) the message the receipt is about, else its own id.
+ */
+export const threadRoot = (s: Pick<FetchedSummary, 'references' | 'inReplyTo' | 'messageId' | 'pec'>) =>
+  s.references[0] ?? messageIds(s.inReplyTo)[0] ?? s.pec?.riferimento ?? s.messageId
 
 /**
  * Whether a BODYSTRUCTURE has real attachments: a part with an attachment disposition, or a
@@ -110,6 +116,7 @@ export function parseSummary(attrs: Map<string, ImapValue>): FetchedSummary {
     inReplyTo: asText(env[8]) || undefined,
     messageId: messageIds(asText(env[9]))[0],
     references,
+    pec: pecHeaders(refsHeader),
     hasAttachments: hasAttachments(attrs.get('BODYSTRUCTURE')),
   }
 }

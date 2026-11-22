@@ -232,6 +232,11 @@ function ComposerWindow({ c }: { c: Composer }) {
       </header>
       {!c.minimized && (
         <div className="composer__body">
+          {c.note && (
+            <div className="banner banner--warning composer__error" role="note">
+              {c.note}
+            </div>
+          )}
           {c.error && (
             <div className="banner banner--error composer__error" role="alert">
               <Icon name="error" />

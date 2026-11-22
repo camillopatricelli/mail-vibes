@@ -48,6 +48,29 @@ export interface MailMessage extends MailSummary {
   folderId: string
   /** Which well-known folder the message is in, if any */
   folderKind?: Exclude<FolderKind, 'starred'>
+  /** Certification data of a PEC (Italian certified email) message or receipt */
+  pec?: PecDetails
+}
+
+export interface PecDetails {
+  /** A certified message, a receipt about a message the user sent, or a transport error */
+  kind: 'message' | 'receipt' | 'error'
+  /** From daticert.xml: posta-certificata, accettazione, avvenuta-consegna, errore-consegna, … */
+  type: string
+  sender?: string
+  recipients: { email: string; certified: boolean }[]
+  subject?: string
+  /** The PEC provider that certified it */
+  provider?: string
+  date?: number
+  /** The provider's identifier of the message */
+  id?: string
+  msgid?: string
+  /** Receipts: the address the message was delivered to */
+  deliveredTo?: string
+  error?: string
+  /** The attachment holding the whole certified envelope (.eml), the legal record */
+  envelopeAttachmentId?: string
 }
 
 export interface MailFolder {

@@ -1,10 +1,12 @@
 import i18n from '../../i18n'
-import { specialFolders, type SpecialFolder } from '../../settings/store'
-import type { Attachment, FolderKind, ListTarget, MailFolder, MailMessage, MailProvider, MailSummary } from '../types'
+import { specialFolders, useSettings, type SpecialFolder } from '../../settings/store'
+import { useStatus } from '../../status/store'
+import type { Attachment, FolderKind, ListTarget, MailFolder, MailMessage, MailProvider, MailSummary, PecDetails } from '../types'
 import { isDeleted, isDraftFlag, isFlagged, isSeen, parseSummary, SUMMARY_ITEMS, threadRoot, type FetchedSummary } from './envelope'
 import { isInbox, type ListedFolder } from './folders'
 import { folderId, folderPath, messageId, parseMessageId, parseThreadId, threadIdOf } from './ids'
 import { parseMessage, type ParsedMessage } from './message'
+import { originalSender, originalSubject, pecHeaders, pecView } from './pec'
 import type { CommandResult, Part } from './client'
 import { asList, asText, encodeMailboxName, fetchAttributes, type ImapResponse } from './parse'
 import { copiedUids, searchCriteria } from './search'
@@ -28,10 +30,11 @@ const threadMessages = new Map<string, Set<string>>()
 /** Where moved messages came from (new id -> old folder), so "Undo" from Starred or a search puts them back */
 const movedFrom = new Map<string, string>()
 /** Whole messages already downloaded and parsed (a few, for attachments and re-opening) */
-const parsed = new Map<string, ParsedMessage>()
+type Shown = ParsedMessage & { pec?: PecDetails }
+const parsed = new Map<string, Shown>()
 const PARSED_MAX = 30
 
-function remember(key: string, p: ParsedMessage) {
+function remember(key: string, p: Shown) {
   parsed.delete(key)
   parsed.set(key, p)
   while (parsed.size > PARSED_MAX) parsed.delete(parsed.keys().next().value!)
@@ -61,13 +64,15 @@ function toSummary(accountId: string, path: string, uidValidity: number, s: Fetc
     ids.add(id)
     threadMessages.set(k, ids)
   }
+  // A certified message shows its original sender and subject, not the PEC provider's.
+  const certified = s.pec && !s.pec.ricevuta && s.pec.trasporto !== 'errore'
   return {
     accountId,
     id,
     threadId,
-    subject: s.subject,
+    subject: certified ? originalSubject(s.subject) : s.subject,
     snippet: parsed.get(cacheKey(accountId, id))?.snippet ?? '',
-    from: s.from,
+    from: certified ? originalSender(s.from, s.replyTo) : s.from,
     to: s.to,
     date: s.date,
     isRead: isSeen(s.flags),
@@ -93,7 +98,29 @@ async function listFolder(ctx: Ctx, accountId: string, path: string, count: numb
   if (!box.exists) return { messages: [], hasMore: false }
   const from = Math.max(1, box.exists - count + 1)
   const r = await ctx.client.run([`FETCH ${from}:${box.exists} ${SUMMARY_ITEMS}`], 120_000)
-  return { messages: summariesFrom(r.untagged).map((s) => toSummary(accountId, path, box.uidValidity, s)), hasMore: from > 1 }
+  const summaries = summariesFrom(r.untagged)
+  if (!ctx.account.imap?.pec && summaries.some((s) => s.pec)) suggestPec(accountId)
+  return { messages: summaries.map((s) => toSummary(accountId, path, box.uidValidity, s)), hasMore: from > 1 }
+}
+
+/** PEC messages in an account not marked as PEC: offer to mark it (once per session). */
+const pecSuggested = new Set<string>()
+function suggestPec(accountId: string) {
+  if (pecSuggested.has(accountId)) return
+  pecSuggested.add(accountId)
+  const account = useSettings.getState().accounts.find((a) => a.id === accountId)
+  if (!account?.imap) return
+  useStatus.getState().toast({
+    tone: 'info',
+    message: i18n.t('imap.pecDetected', { account: account.email }),
+    action: {
+      label: i18n.t('imap.pecTurnOn'),
+      run: () => {
+        const now = useSettings.getState().accounts.find((a) => a.id === accountId)
+        if (now?.imap) useSettings.getState().updateAccount(accountId, { imap: { ...now.imap, pec: true } })
+      },
+    },
+  })
 }
 
 /** UIDs found by a search in the open folder. */
@@ -117,7 +144,7 @@ async function selectFor(ctx: Ctx, id: string) {
   return ref
 }
 
-async function loadParsed(ctx: Ctx, accountId: string, id: string): Promise<ParsedMessage> {
+async function loadParsed(ctx: Ctx, accountId: string, id: string): Promise<Shown> {
   const cached = parsed.get(cacheKey(accountId, id))
   if (cached) return cached
   const ref = await selectFor(ctx, id)
@@ -125,7 +152,9 @@ async function loadParsed(ctx: Ctx, accountId: string, id: string): Promise<Pars
   const r = await ctx.client.run([`UID FETCH ${ref.uid} (BODY.PEEK[])`], 300_000)
   const raw = r.untagged.filter((u) => u.type === 'FETCH').map(fetchAttributes).find((a) => a.has('BODY[]'))?.get('BODY[]')
   if (!(raw instanceof Uint8Array)) throw new Error('The message is no longer on the server.')
-  const p = await parseMessage(raw)
+  const outer = await parseMessage(raw)
+  const h = pecHeaders(['x-trasporto', 'x-ricevuta', 'x-riferimento-message-id'].map((k) => `${k}: ${outer.headers.get(k) ?? ''}`).join('\n'))
+  const p: Shown = h ? await pecView(raw, outer, h) : outer
   remember(cacheKey(accountId, id), p)
   return p
 }
@@ -271,6 +300,7 @@ export const imap: MailProvider = {
         const path = parseMessageId(s.id).path
         out.push({
           ...s,
+          ...(p.pec && { from: p.from ?? s.from, to: p.to, subject: p.subject || s.subject, pec: p.pec }),
           threadId,
           snippet: p.snippet,
           hasAttachments: p.attachments.some((a) => !a.meta.isInline),

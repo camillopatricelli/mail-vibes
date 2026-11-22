@@ -10,6 +10,11 @@ export interface ParsedAttachment {
 }
 
 export interface ParsedMessage {
+  subject: string
+  from?: Address
+  to: Address[]
+  /** The Date header (0 if missing) */
+  date: number
   bodyHtml: string
   bodyIsHtml: boolean
   /** Plain text start, for previews */
@@ -58,6 +63,10 @@ export async function parseMessage(raw: Uint8Array): Promise<ParsedMessage> {
     }
   })
   return {
+    subject: email.subject ?? '',
+    from: addresses(email.from)[0],
+    to: addresses(email.to),
+    date: (email.date && Date.parse(email.date)) || 0,
     bodyHtml: email.html ?? `<pre style="white-space:pre-wrap;font:inherit">${escapeHtml(text)}</pre>`,
     bodyIsHtml: !!email.html,
     snippet: snippetOf(text || (email.html ?? '').replace(/<style[\s\S]*?<\/style>|<[^>]+>/g, ' ')),

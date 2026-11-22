@@ -11,7 +11,8 @@ import { AccountBadge, Button, EmptyState, Icon, IconButton, type IconName } fro
 import { Dialog, Menu, Spinner } from '../ui/overlay'
 import { canDeleteForever, canSend, providerFor } from './api'
 import { AttachmentList } from './Attachments'
-import { openDraft, openNew, openReply } from './compose'
+import { defaultSendAccount, openDraft, openForwardFrom, openNew, openReply } from './compose'
+import { PecBox } from './imap/PecBox'
 import i18n from '../i18n'
 import { mailActions, refreshAccountMail, useAllFolders, useAllTags, useFolders, useMergedFolder, useThread, useUnreadCounts, type ThreadSummary } from './data'
 import { TagChip, TagDialog, tagColor } from './Tags'
@@ -791,6 +792,8 @@ function MessageCard({ m, expanded, onToggle, account, onAddTask }: { m: MailMes
                       { label: t('mail.replyAll'), icon: 'reply_all' as const, onSelect: () => void openReply(m, 'replyAll') },
                       { label: t('mail.forward'), icon: 'forward' as const, onSelect: () => void openReply(m, 'forward') },
                     ]
+                  : defaultSendAccount()
+                  ? [{ label: t('mail.forward'), icon: 'forward' as const, onSelect: () => void openForwardFrom(m) }]
                   : []),
                 m.isRead
                   ? { label: t('mail.markUnread'), icon: 'mark_email_unread', onSelect: () => void mailActions.setRead([m], false) }
@@ -801,6 +804,7 @@ function MessageCard({ m, expanded, onToggle, account, onAddTask }: { m: MailMes
           </>
         )}
       </header>
+      {m.pec && <PecBox pec={m.pec} />}
       <MessageBody message={m} />
       {m.hasAttachments &&
         (attachments.isPending ? (
@@ -901,7 +905,7 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
         <IconButton icon="arrow_back" label={t('mail.back')} onClick={back} />
         {archivable.length > 0 && <IconButton icon="archive" label={t('mail.archive')} onClick={() => void mailActions.archive(archivable, 1).then(back)} />}
         {notTrashed.length > 0 ? (
-          <IconButton icon="delete" label={t('mail.delete')} onClick={() => void mailActions.trash(notTrashed, 1).then(back)} />
+          <IconButton icon="delete" label={t('mail.delete')} onClick={() => void mailActions.trash(notTrashed, 1).then((done) => done && back())} />
         ) : (
           messages.some((m) => canDeleteForever(m.accountId)) && (
             <IconButton
@@ -978,6 +982,13 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
             {t('mail.replyAll')}
           </Button>
           <Button variant="outlined" icon="forward" onClick={() => void openReply(latest, 'forward')}>
+            {t('mail.forward')}
+          </Button>
+        </div>
+      )}
+      {latest && !latest.isDraft && !canSend(latest.accountId) && defaultSendAccount() && (
+        <div className="thread__reply">
+          <Button variant="outlined" icon="forward" onClick={() => void openForwardFrom(latest)}>
             {t('mail.forward')}
           </Button>
         </div>
