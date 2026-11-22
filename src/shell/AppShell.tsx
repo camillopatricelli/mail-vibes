@@ -49,7 +49,8 @@ function TopBar() {
   const [q, setQ] = useState(routeQuery)
   // Keep the box in step with the address (back/forward between searches).
   useEffect(() => {
-    if (route === 'search') setQ(routeQuery)
+    // Leaving the results also empties the box, so it never shows a search that no longer applies.
+    setQ(route === 'search' ? routeQuery : '')
   }, [route, routeQuery])
   return (
     <header className="top-bar">

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useSwipe } from './useSwipe'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { displayName, fullDate, listDate, shortDateTime } from '../lib/format'
@@ -301,11 +302,15 @@ async function editScheduled(th: ThreadSummary) {
   }
 }
 
+/** Phone-sized layout (bottom navigation), where rows are tapped rather than hovered. */
+const isCompact = () => window.matchMedia('(max-width: 839px)').matches
+
 function ThreadRow({
   th,
   view,
   account,
   selected,
+  selecting,
   onSelect,
   dialogs,
 }: {
@@ -313,15 +318,26 @@ function ThreadRow({
   view: MailView
   account?: AccountSettings
   selected: boolean
+  /** Some rows are selected: on phones a tap then selects instead of opening */
+  selecting: boolean
   onSelect: (v: boolean) => void
   dialogs: RowDialogs
 }) {
   const { t } = useTranslation()
   const folder = uiFolder(view)
+  // Phones: swipe left to delete, right to archive, in the Inbox and the account's own folders.
+  const swipeFrom: ListTarget | undefined =
+    view.kind === 'custom' ? { folderId: view.folderId } : view.kind === 'well' && view.folder === 'inbox' ? 'inbox' : undefined
+  const swipe = useSwipe({
+    onLeft: swipeFrom && (() => void mailActions.moveWithUndo(itemsOf([th]), 'trash', swipeFrom, 1)),
+    onRight: swipeFrom && (() => void mailActions.moveWithUndo(itemsOf([th]), 'archive', swipeFrom, 1)),
+    onLongPress: () => onSelect(!selected),
+  })
   const items = itemsOf([th])
   const allTags = useAllTags()
   const rowTags = th.tags.filter((n) => view.kind !== 'tag' || n.toLowerCase() !== view.name.toLowerCase())
   const open = () => {
+    if (selecting && isCompact()) return onSelect(!selected)
     if (folder === 'scheduled') void editScheduled(th)
     else if (folder === 'drafts' && th.hasDraft && th.messages.length === 1) void openDraft(th.accountId, th.messages[0].id)
     else goMail(view, { accountId: th.accountId, threadId: th.threadId })
@@ -330,9 +346,34 @@ function ThreadRow({
     folder === 'sent' || folder === 'drafts' || folder === 'scheduled'
       ? th.messages[th.messages.length - 1].to.map(displayName).join(', ')
       : th.participants.map(displayName).join(', ')
+  const initial = (senders || '?').replace(/^[^\p{L}\p{N}]+/u, '').charAt(0).toUpperCase() || '?'
   return (
-    <li className={['thread-row', th.unread && 'is-unread', selected && 'is-selected'].filter(Boolean).join(' ')} style={{ borderLeftColor: account?.color }}>
+    <li className="thread-swipe">
+      {swipe.dx !== 0 && (
+        <div className={['thread-swipe__under', swipe.dx < 0 ? 'is-delete' : 'is-archive'].join(' ')} aria-hidden>
+          <Icon name={swipe.dx < 0 ? 'delete' : 'archive'} />
+        </div>
+      )}
+      <div
+        className={['thread-row', th.unread && 'is-unread', selected && 'is-selected', swipe.dx !== 0 && 'is-swiping'].filter(Boolean).join(' ')}
+        style={{
+          borderLeftColor: account?.color,
+          transform: swipe.dx ? `translateX(${swipe.dx}px)` : undefined,
+          transition: swipe.settling ? 'transform 180ms ease-out' : undefined,
+        }}
+        {...swipe.handlers}
+      >
       <input type="checkbox" className="thread-row__check" checked={selected} onChange={(e) => onSelect(e.target.checked)} aria-label={t('mail.select', { subject: th.subject })} />
+      <button
+        type="button"
+        className="thread-row__avatar"
+        style={{ background: selected ? undefined : account?.color }}
+        aria-pressed={selected}
+        aria-label={t('mail.select', { subject: th.subject })}
+        onClick={() => onSelect(!selected)}
+      >
+        {selected ? <Icon name="check" size={20} /> : <span aria-hidden>{initial}</span>}
+      </button>
       <IconButton
         icon="star"
         className="thread-row__star"
@@ -398,6 +439,7 @@ function ThreadRow({
         <IconButton icon="label" label={t('tags.action')} onClick={() => dialogs.onTags(th)} />
         {folder !== 'scheduled' && th.messages.some((m) => !m.isDraft) && <IconButton icon="add_task" label={t('tasks.addFromMail')} onClick={() => dialogs.onTask(th)} />}
       </span>
+      </div>
     </li>
   )
 }
@@ -579,7 +621,7 @@ function MailList({ view }: { view: MailView }) {
             <IconButton icon="mark_email_unread" label={t('mail.markUnread')} onClick={() => void mailActions.setRead(selItems, false).then(clear)} />
             <IconButton icon="drive_file_move" label={t('mail.moveTo')} onClick={() => setMoving(true)} />
             <IconButton icon="label" label={t('tags.action')} onClick={() => setTagging(sel.flatMap((th) => th.messages))} />
-            <span className="body-medium">{t('mail.selected', { count: sel.length })}</span>
+            <span className="body-medium list-toolbar__count">{t('mail.selected', { count: sel.length })}</span>
           </>
         )}
       </div>
@@ -611,6 +653,7 @@ function MailList({ view }: { view: MailView }) {
               view={view}
               account={accountMap.get(th.accountId)}
               selected={selected.has(th.key)}
+              selecting={selected.size > 0}
               dialogs={dialogs}
               onSelect={(v) =>
                 setSelected((s) => {

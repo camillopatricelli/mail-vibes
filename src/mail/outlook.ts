@@ -173,11 +173,13 @@ function hiddenFolderIds(accountId: string) {
 }
 
 /** Runs up to 20 requests per Graph JSON batch; throws if any of them failed. */
+/** Runs requests through Graph's $batch; answers the response bodies in request order. */
 async function batch(accountId: string, requests: { method: string; url: string; body?: unknown }[]) {
   const failures: string[] = []
+  const bodies: unknown[] = new Array(requests.length)
   for (let i = 0; i < requests.length; i += 20) {
     const chunk = requests.slice(i, i + 20)
-    const res = await graph<{ responses: { id: string; status: number; body?: { error?: { message?: string } } }[] }>(
+    const res = await graph<{ responses: { id: string; status: number; body?: { id?: string; error?: { message?: string } } }[] }>(
       accountId,
       '/$batch',
       {
@@ -192,7 +194,10 @@ async function batch(accountId: string, requests: { method: string; url: string;
         },
       },
     )
-    for (const r of res.responses) if (r.status >= 400) failures.push(r.body?.error?.message ?? `HTTP ${r.status}`)
+    for (const r of res.responses) {
+      if (r.status >= 400) failures.push(r.body?.error?.message ?? `HTTP ${r.status}`)
+      else bodies[i + Number(r.id)] = r.body
+    }
   }
   if (failures.length) {
     throw new ApiError(
@@ -200,6 +205,7 @@ async function batch(accountId: string, requests: { method: string; url: string;
       400,
     )
   }
+  return bodies
 }
 
 function fileToBase64(file: Blob): Promise<string> {
@@ -369,7 +375,9 @@ export const outlook: MailProvider = {
     if (typeof dest === 'object' && !('folderId' in dest)) throw new ApiError(i18n.t('errors.cannotMove'), 400)
     if (dest === 'snoozed' || dest === 'scheduled') throw new ApiError(i18n.t('errors.cannotMove'), 400)
     const destinationId = typeof dest === 'string' ? (dest === 'starred' ? 'inbox' : wellKnown[dest]) : dest.folderId
-    await batch(accountId, ids.map((id) => ({ method: 'POST', url: `/me/messages/${id}/move`, body: { destinationId } })))
+    const moved = await batch(accountId, ids.map((id) => ({ method: 'POST', url: `/me/messages/${id}/move`, body: { destinationId } })))
+    // Outlook gives a moved message a new id; "Undo" needs it.
+    return moved.map((b, i) => (b as { id?: string } | undefined)?.id ?? ids[i])
   },
 
   async deleteForever(accountId, ids) {

@@ -313,7 +313,7 @@ function groupByAccount(items: { accountId: string; id: string }[]) {
 async function run(
   items: { accountId: string; id: string }[],
   patch: Patch | 'remove',
-  call: (accountId: string, ids: string[]) => Promise<void>,
+  call: (accountId: string, ids: string[]) => Promise<unknown>,
   successMessage?: string,
   quiet = false,
 ) {
@@ -380,6 +380,46 @@ export const mailActions = {
     run(items, { scheduledAt: at }, async (a, ids) => {
       for (const id of ids) await providerFor(a).scheduleDraft(a, id, at)
     }, i18n.t('compose.scheduled', { time: shortDateTime(at) })),
+  /**
+   * Delete or archive with an "Undo" button (swiping on phones). Undo moves the messages back to
+   * `from`, the list they were swiped in; Outlook gives moved messages new ids, so those are kept.
+   */
+  async moveWithUndo(items: Item[], dest: 'trash' | 'archive', from: ListTarget, count = items.length) {
+    const t = i18n.t.bind(i18n)
+    const moved = new Map<string, string[]>()
+    let failed = false
+    await Promise.all(
+      [...groupByAccount(items)].map(async ([accountId, ids]) => {
+        patchCaches(accountId, new Set(ids), 'remove')
+        try {
+          moved.set(accountId, (await providerFor(accountId).move(accountId, ids, dest)) || ids)
+        } catch (e) {
+          failed = true
+          useStatus.getState().toast({ tone: 'error', message: t('mail.actionFailed', { reason: (e as Error).message }) })
+        } finally {
+          syncAfter(accountId)
+        }
+      }),
+    )
+    if (failed) return false
+    const undo = async () => {
+      for (const [accountId, ids] of moved) {
+        try {
+          await providerFor(accountId).move(accountId, ids, from)
+        } catch (e) {
+          useStatus.getState().toast({ tone: 'error', message: t('mail.actionFailed', { reason: (e as Error).message }) })
+        } finally {
+          syncAfter(accountId)
+        }
+      }
+    }
+    useStatus.getState().toast({
+      tone: 'success',
+      message: dest === 'trash' ? t('mail.trashed', { count }) : t('mail.archived', { count }),
+      action: { label: t('mail.undo'), run: () => void undo() },
+    })
+    return true
+  },
   deleteForever: (items: Item[], count = items.length) =>
     run(items, 'remove', (a, ids) => providerFor(a).deleteForever(a, ids), i18n.t('mail.deletedForever', { count })),
 }

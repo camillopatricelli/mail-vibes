@@ -28,6 +28,8 @@
 }
 .search {
   flex: 1;
+  /* Without this the box can't shrink below its contents, and on phones pushes the bar off-screen. */
+  min-width: 0;
   max-width: 720px;
   display: flex;
   align-items: center;
@@ -120,8 +122,11 @@
     background: var(--md-sys-color-surface);
   }
   .rail { display: none; }
-  .brand { min-width: 0; }
+  .brand { min-width: 0; flex: none; }
   .brand__name { display: none; }
+  .top-bar { gap: 8px; padding-left: 12px; padding-right: 8px; }
+  .top-bar__actions { gap: 0; flex: none; }
+  .search { padding-left: 12px; }
   .compact-only { display: inline-flex; }
   .content { margin: 0; border-radius: 0; }
   .page { padding: 12px 16px 24px; }

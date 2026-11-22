@@ -96,8 +96,8 @@ export interface MailProvider {
   thread(accountId: string, threadId: string): Promise<MailMessage[]>
   setRead(accountId: string, ids: string[], read: boolean): Promise<void>
   setFlagged(accountId: string, ids: string[], flagged: boolean): Promise<void>
-  /** Moves messages to a well-known folder or a folder id */
-  move(accountId: string, ids: string[], dest: ListTarget): Promise<void>
+  /** Moves messages to a well-known folder or a folder id; may answer the messages' new ids (Outlook) */
+  move(accountId: string, ids: string[], dest: ListTarget): Promise<string[] | void>
   deleteForever(accountId: string, ids: string[]): Promise<void>
   /** Takes messages out of the Inbox until `until` (see snooze.ts); snoozing again replaces the time */
   snooze(accountId: string, ids: string[], until: number): Promise<void>

@@ -179,6 +179,7 @@ const en = {
     disclaimer: 'Mail Vibes is a personal, free, open-source project provided as is, without warranty of any kind (see the MIT licence). It has no server: your mail, events, tasks and contacts go directly between your browser and Google or Microsoft, and are never sent to or seen by the author. You use it at your own risk and are responsible for your accounts, your data and your organisation’s policies. If your organisation uses it, its administrators decide whether to allow it.',
   },
   mail: {
+    undo: 'Undo',
     gmailNoDeleteForever: 'Gmail messages cannot be deleted permanently from Mail Vibes (that would need full access to your mailbox). Gmail empties Trash and Spam automatically after 30 days.',
     folders: 'Folders',
     folder: { inbox: 'Inbox', starred: 'Starred', snoozed: 'Snoozed', sent: 'Sent', drafts: 'Drafts', scheduled: 'Scheduled', archive: 'Archive', trash: 'Bin', spam: 'Spam' },

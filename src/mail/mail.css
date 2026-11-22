@@ -63,6 +63,16 @@
 .load-more { display: flex; justify-content: center; padding: 12px; }
 
 .thread-list { list-style: none; margin: 0; padding: 0; }
+/* Each row sits on a layer that shows what a swipe will do (phones). */
+.thread-swipe { position: relative; overflow: hidden; }
+.thread-swipe__under {
+  position: absolute; inset: 0; display: flex; align-items: center; padding: 0 24px;
+  color: var(--md-sys-color-on-primary);
+}
+.thread-swipe__under.is-delete { justify-content: flex-end; background: var(--md-sys-color-error); color: var(--md-sys-color-on-error); }
+.thread-swipe__under.is-archive { justify-content: flex-start; background: var(--md-sys-color-primary); }
+.thread-row.is-swiping { z-index: 1; }
+.thread-row__avatar { display: none; }
 .thread-row {
   position: relative;
   display: flex;
@@ -109,8 +119,19 @@
 .draft-label { color: var(--md-sys-color-error); font-weight: 500; }
 
 @media (max-width: 839px) {
-  .thread-row { align-items: flex-start; padding: 8px 4px 8px 4px; }
+  .thread-row { align-items: flex-start; padding: 8px 4px 8px 4px; touch-action: pan-y; -webkit-touch-callout: none; user-select: none; }
   .thread-row__check { display: none; }
+  .thread-row__avatar {
+    display: grid; place-items: center; flex: none; width: 40px; height: 40px; margin: 2px 4px 0 4px;
+    border: 0; border-radius: 50%; padding: 0; cursor: pointer;
+    font: 500 18px/1 inherit; color: #fff;
+    background: var(--md-sys-color-primary);
+  }
+  .thread-row.is-selected .thread-row__avatar { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+  .thread-row__from .account-badge { display: none; }
+  .list-toolbar { overflow-x: auto; scrollbar-width: none; }
+  /* The ticked rows already show what is selected; the count would not fit next to the actions. */
+  .list-toolbar__count { display: none; }
   .thread-row__star { order: 3; }
   .thread-row__main { flex-wrap: wrap; height: auto; gap: 2px 8px; }
   .thread-row__from { flex: 1 1 auto; }

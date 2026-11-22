@@ -581,6 +581,8 @@ export const gmail: MailProvider = {
   async move(accountId, ids, dest) {
     if (typeof dest !== 'string') {
       if (!('folderId' in dest)) throw new ApiError(i18n.t('errors.cannotMove'), 400)
+      // A label on a message in the Bin leaves it in the Bin ("Undo" after a delete): take it out first.
+      await perMessage(accountId, ids, 'untrash')
       return modify(accountId, ids, [dest.folderId], ['INBOX', 'SPAM'])
     }
     switch (dest) {

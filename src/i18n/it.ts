@@ -182,6 +182,7 @@ const it: Messages = {
     disclaimer: 'Mail Vibes è un progetto personale, gratuito e open source, fornito così com’è, senza garanzie di alcun tipo (vedi la licenza MIT). Non ha un server: posta, eventi, attività e contatti viaggiano direttamente tra il tuo browser e Google o Microsoft, e l’autore non li riceve né li vede mai. Lo usi a tuo rischio e sei responsabile dei tuoi account, dei tuoi dati e delle regole della tua organizzazione. Se la tua organizzazione lo usa, spetta ai suoi amministratori decidere se consentirlo.',
   },
   mail: {
+    undo: 'Annulla',
     gmailNoDeleteForever: "I messaggi Gmail non possono essere eliminati definitivamente da Mail Vibes (servirebbe l'accesso completo alla casella). Gmail svuota automaticamente Cestino e Spam dopo 30 giorni.",
     folders: 'Cartelle',
     folder: { inbox: 'Posta in arrivo', starred: 'Speciali', snoozed: 'Posticipati', sent: 'Inviata', drafts: 'Bozze', scheduled: 'Pianificati', archive: 'Archivio', trash: 'Cestino', spam: 'Spam' },
