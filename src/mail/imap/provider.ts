@@ -143,7 +143,9 @@ async function datesOf(ctx: Ctx, accountId: string, path: string, box: { uidVali
   const key = cacheKey(accountId, path)
   let idx = dateIndexes.get(key)
   if (idx && idx.uidValidity !== box.uidValidity) idx = undefined
-  if (idx && idx.dates.size < box.exists) addDates(idx, (await ctx.client.run([`UID FETCH ${idx.maxUid + 1}:* (UID INTERNALDATE)`], 120_000)).untagged)
+  // Always look for new messages, even when the count hasn't changed: another program may have
+  // replaced one (webmail re-saving a draft removes the old copy and adds a new one).
+  if (idx && box.exists) addDates(idx, (await ctx.client.run([`UID FETCH ${idx.maxUid + 1}:* (UID INTERNALDATE)`], 120_000)).untagged)
   // Messages removed elsewhere (or several new ones in odd order): read all dates again.
   if (!idx || idx.dates.size !== box.exists) {
     idx = { uidValidity: box.uidValidity, dates: new Map(), maxUid: 0 }
