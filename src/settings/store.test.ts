@@ -93,3 +93,17 @@ describe('settings export/import', () => {
     expect(defaultSettings.defaults).toEqual({})
   })
 })
+
+describe('IMAP bridge in the export file', () => {
+  const bridge = { url: 'https://bridge.example.workers.dev', key: 'k'.repeat(32) }
+  it('leaves the bridge out unless the user opted in', () => {
+    expect(JSON.parse(exportSettingsJson({ ...sample, bridge })).settings.bridge).toBeUndefined()
+    const file = exportSettingsJson({ ...sample, bridge, exportBridge: true })
+    expect(JSON.parse(file).settings.bridge).toEqual(bridge)
+    expect(parseSettingsJson(file).bridge).toEqual(bridge)
+  })
+  it('rejects bridge addresses that are not https', () => {
+    const file = exportSettingsJson({ ...sample, bridge: { ...bridge, url: 'http://bridge.example.com' }, exportBridge: true })
+    expect(parseSettingsJson(file).bridge).toBeUndefined()
+  })
+})

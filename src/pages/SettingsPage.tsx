@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { RulesLink } from '../mail/RulesPage'
 import { loadContacts } from '../contacts/contacts'
 import { NotificationSettings } from '../notify/NotificationSettings'
+import { BridgeSettings } from '../mail/imap/BridgeSettings'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { appInfo } from '../config'
@@ -454,6 +455,10 @@ export function SettingsPage() {
       </Section>
 
       <TenantsSection />
+
+      <Section title={t('imap.section')} hint={t('imap.sectionHint')}>
+        <BridgeSettings Field={Field} />
+      </Section>
 
       <Section title={t('settings.defaults')}>
         <DefaultSelect label={t('settings.defaultSend')} field="sendAccountId" />

@@ -71,6 +71,10 @@ export interface Settings {
   weekStart: WeekStartPref
   /** The user's own Google Maps key, for place suggestions in event locations */
   mapsApiKey?: string
+  /** The user's own IMAP bridge (docs/imap-bridge.md), needed only for IMAP accounts */
+  bridge?: { url: string; key: string }
+  /** Include the bridge address and access key in the settings export file */
+  exportBridge: boolean
 }
 
 /** How an account is named in the app: its short name, else the holder's name, else the address. */
@@ -117,6 +121,7 @@ export const defaultSettings: Settings = {
   notifyMail: true,
   notifyEvents: true,
   weekStart: 'monday',
+  exportBridge: false,
 }
 
 interface SettingsActions {
@@ -207,14 +212,19 @@ export function pickSettings(s: Settings): Settings {
     notifyEvents: s.notifyEvents ?? true,
     weekStart: s.weekStart ?? 'monday',
     mapsApiKey: s.mapsApiKey || undefined,
+    bridge: s.bridge?.url ? { url: s.bridge.url, key: s.bridge.key ?? '' } : undefined,
+    exportBridge: s.exportBridge ?? false,
   }
 }
 
 // ---------- Export / import ----------
 
+/** Never includes passwords; the bridge only if the user opted in. */
 export function exportSettingsJson(s: Settings): string {
+  const settings = pickSettings(s)
+  if (!settings.exportBridge) delete settings.bridge
   return JSON.stringify(
-    { format: SETTINGS_FORMAT, version: SETTINGS_VERSION, exportedAt: new Date().toISOString(), settings: pickSettings(s) },
+    { format: SETTINGS_FORMAT, version: SETTINGS_VERSION, exportedAt: new Date().toISOString(), settings },
     null,
     2,
   )
@@ -250,6 +260,10 @@ export function parseSettingsJson(text: string): Settings {
   if (typeof s.notifyEvents === 'boolean') out.notifyEvents = s.notifyEvents
   if (s.weekStart === 'monday' || s.weekStart === 'sunday' || s.weekStart === 'auto') out.weekStart = s.weekStart
   if (isStr(s.mapsApiKey) && /^[\w-]{20,60}$/.test(s.mapsApiKey.trim())) out.mapsApiKey = s.mapsApiKey.trim()
+  if (s.bridge && isStr(s.bridge.url) && /^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(s.bridge.url) && isStr(s.bridge.key)) {
+    out.bridge = { url: s.bridge.url, key: s.bridge.key }
+    out.exportBridge = true
+  }
 
   if (Array.isArray(s.accounts)) {
     out.accounts = s.accounts

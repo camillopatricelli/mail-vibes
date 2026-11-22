@@ -1,0 +1,14 @@
+# Mail Vibes bridge (see docs/imap-bridge.md).
+# The access key is a secret: set it with `npx wrangler secret put ACCESS_KEY`, never in this file.
+name = "mail-vibes-bridge"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+[vars]
+# Where Mail Vibes is opened from, comma-separated. Add your own address if you host the app yourself.
+ALLOWED_ORIGINS = "https://camillopatricelli.github.io,http://localhost:5173,http://localhost:4173"
+
+[observability]
+# Keep logs off: the bridge never logs content or credentials, and needs no request logs either.
+enabled = false

@@ -8,3 +8,5 @@ test-results/
 *.stackdump
 public/pdfjs/
 *.tsbuildinfo
+.dev.vars
+.wrangler/

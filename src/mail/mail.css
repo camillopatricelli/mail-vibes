@@ -367,3 +367,19 @@
 .rule-form p { margin: 0; }
 .rule-form .text-field, .rule-form .select { flex: none; }
 .rules__list + div { margin-top: 8px; }
+
+/* IMAP server test (Settings) */
+.imap-test { display: flex; flex-direction: column; gap: 12px; min-width: min(36rem, 100%); }
+.imap-test h3 { margin: 8px 0 0; }
+.imap-server { display: grid; grid-template-columns: 1fr 6rem 9rem; gap: 8px; }
+.imap-server label, .imap-server__pw { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.imap-server__user { grid-column: 1 / -1; }
+.imap-server__port { width: 100%; }
+/* The shared field styles size by flex-basis, which would stretch them in these columns */
+.imap-test .text-field, .imap-test .select { flex: none; width: 100%; }
+.imap-test__log { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.imap-test__ok { color: var(--md-sys-color-primary); }
+@media (max-width: 600px) {
+  .imap-server { grid-template-columns: 1fr 1fr; }
+  .imap-server__host { grid-column: 1 / -1; }
+}
