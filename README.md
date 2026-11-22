@@ -45,7 +45,10 @@ policies. If your organisation uses it, its administrators decide whether to all
 - **Search** across mail, events and tasks.
 - **Notifications** for new mail, event reminders and task reminders while the app is open.
 - **Installable** as an app on computers and phones (PWA), with light and dark themes.
-- **Settings file:** export your settings and import them on another device.
+- **Copy to another device:** one encrypted link (and a short code) sets up a phone, tablet or
+  other computer just like this one, IMAP passwords included. A settings file is also available as
+  a backup.
+- **Unread filter** in every mail folder.
 
 ![The calendar week view](docs/screenshots/calendar.png)
 

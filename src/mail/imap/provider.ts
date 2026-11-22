@@ -162,8 +162,8 @@ function forgetDates(accountId: string, path: string, uids: number[]) {
   for (const u of uids) idx?.dates.delete(u)
 }
 
-/** The newest `count` messages of a folder, by arrival date. */
-async function listFolder(ctx: Ctx, accountId: string, path: string, count: number) {
+/** The newest `count` messages of a folder (only unread ones if asked), by arrival date. */
+async function listFolder(ctx: Ctx, accountId: string, path: string, count: number, unread = false) {
   const box = await ctx.select(path, true)
   if (!box.exists) return { messages: [], hasMore: false }
   const idx = await datesOf(ctx, accountId, path, box)
@@ -172,12 +172,17 @@ async function listFolder(ctx: Ctx, accountId: string, path: string, count: numb
     await checkQuota(ctx, accountId)
     await ctx.select(path)
   }
-  const newest = [...idx.dates].sort((a, b) => b[1] - a[1] || b[0] - a[0]).slice(0, count).map(([uid]) => uid)
+  let pool = [...idx.dates]
+  if (unread) {
+    const unseen = new Set(await search(ctx, 'UNSEEN'))
+    pool = pool.filter(([uid]) => unseen.has(uid))
+  }
+  const newest = pool.sort((a, b) => b[1] - a[1] || b[0] - a[0]).slice(0, count).map(([uid]) => uid)
   if (!newest.length) return { messages: [], hasMore: false }
   const r = await ctx.client.run([`UID FETCH ${newest.join(',')} ${SUMMARY_ITEMS}`], 120_000)
   const summaries = summariesFrom(r.untagged)
   if (!ctx.account.imap?.pec && summaries.some((s) => s.pec)) suggestPec(accountId)
-  return { messages: summaries.map((s) => toSummary(accountId, path, box.uidValidity, s)), hasMore: idx.dates.size > count }
+  return { messages: summaries.map((s) => toSummary(accountId, path, box.uidValidity, s)), hasMore: pool.length > count }
 }
 
 /** PEC messages in an account not marked as PEC: offer to mark it (once per session). */
@@ -268,13 +273,15 @@ async function expunge(ctx: Ctx, uidSet: string) {
 }
 
 /** Search the Inbox, Sent, Archive and the user's folders (not Trash, Junk, Drafts); newest first. */
-async function searchMail(ctx: Ctx, accountId: string, target: { search: string; inbox?: boolean }, count: number) {
+async function searchMail(ctx: Ctx, accountId: string, target: { search: string; inbox?: boolean }, count: number, unread = false) {
   const criteria = searchCriteria(target.search, !!ctx.account.imap?.pec)
   if (!criteria) return { messages: [], hasMore: false }
-  return searchFolders(ctx, accountId, criteria, count, !!target.inbox)
+  return searchFolders(ctx, accountId, criteria, count, !!target.inbox, unread)
 }
 
-async function searchFolders(ctx: Ctx, accountId: string, criteria: string | Part[], count: number, inboxOnly = false) {
+async function searchFolders(ctx: Ctx, accountId: string, criteria: string | Part[], count: number, inboxOnly = false, unread = false) {
+  // After the criteria: a CHARSET must stay first.
+  if (unread) criteria = typeof criteria === 'string' ? `${criteria} UNSEEN` : [...criteria, ' UNSEEN']
   const { list, special } = await ctx.folders()
   const ns = namespaceOf(list)
   const skip = new Set([special.trash, special.spam, special.drafts])
@@ -807,10 +814,11 @@ const scheduleMethods: Pick<MailProvider, 'scheduleDraft' | 'unschedule' | 'send
 // ---------- The adapter ----------
 
 export const imap: MailProvider = {
-  async list(accountId, target: ListTarget, count) {
+  async list(accountId, target: ListTarget, count, options) {
+    const unread = !!options?.unread
     return session(accountId).run(async (ctx) => {
       if (typeof target === 'string') {
-        if (target === 'inbox') return listFolder(ctx, accountId, 'INBOX', count)
+        if (target === 'inbox') return listFolder(ctx, accountId, 'INBOX', count, unread)
         if (target === 'snoozed') return listTimed(ctx, accountId, 'Snoozed', count)
         if (target === 'scheduled') return listTimed(ctx, accountId, 'Send later', count)
         const { special } = await ctx.folders()
@@ -819,17 +827,17 @@ export const imap: MailProvider = {
           const out: MailSummary[] = []
           for (const path of ['INBOX', special.archive].filter((p): p is string => !!p)) {
             await ctx.select(path)
-            const uids = (await search(ctx, 'FLAGGED')).slice(-count)
+            const uids = (await search(ctx, unread ? 'FLAGGED UNSEEN' : 'FLAGGED')).slice(-count)
             out.push(...(await fetchByUid(ctx, accountId, path, uids)))
           }
           return { messages: out, hasMore: false }
         }
         const path = special[target as SpecialFolder]
-        return path ? listFolder(ctx, accountId, path, count) : { messages: [], hasMore: false }
+        return path ? listFolder(ctx, accountId, path, count, unread) : { messages: [], hasMore: false }
       }
-      if ('folderId' in target) return listFolder(ctx, accountId, folderPath(target.folderId), count)
-      if ('search' in target) return searchMail(ctx, accountId, target, count)
-      return searchFolders(ctx, accountId, ['KEYWORD ', { str: tagToKeyword(target.tag) }], count)
+      if ('folderId' in target) return listFolder(ctx, accountId, folderPath(target.folderId), count, unread)
+      if ('search' in target) return searchMail(ctx, accountId, target, count, unread)
+      return searchFolders(ctx, accountId, ['KEYWORD ', { str: tagToKeyword(target.tag) }], count, false, unread)
     })
   },
 

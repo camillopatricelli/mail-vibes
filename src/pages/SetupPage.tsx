@@ -4,9 +4,16 @@ import { navigate } from '../lib/router'
 import { selectTenants, useSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 import { Button, Card } from '../ui/components'
+import { ReceiveTransfer } from './DeviceTransfer'
+
+/** Setup links: a shared organisation (#/setup/org/<payload>) or a whole setup from another device. */
+export function SetupPage({ params }: { params: string[] }) {
+  if (params[0] === 'device' && params[1]) return <ReceiveTransfer payload={params[1]} />
+  return <OrgSetup params={params} />
+}
 
 /** Confirmation page for a shared organisation setup link (#/setup/org/<payload>). */
-export function SetupPage({ params }: { params: string[] }) {
+function OrgSetup({ params }: { params: string[] }) {
   const { t } = useTranslation()
   const customTenants = useSettings((s) => s.customTenants)
   const tenantNames = useSettings((s) => s.tenantNames)

@@ -514,7 +514,7 @@ async function draftState(accountId: string, id: string): Promise<DraftState> {
 }
 
 export const gmail: MailProvider = {
-  async list(accountId, target: ListTarget, count) {
+  async list(accountId, target: ListTarget, count, options) {
     if (target === 'snoozed') return listTimed(accountId, 'Snoozed', count)
     if (target === 'scheduled') return listTimed(accountId, 'Send later', count)
     const params = new URLSearchParams({ maxResults: String(Math.min(count, 500)) })
@@ -530,6 +530,7 @@ export const gmail: MailProvider = {
       if (!label) return { messages: [], hasMore: false }
       params.set('labelIds', label.id)
     } else params.set('labelIds', target.folderId)
+    if (options?.unread) params.set('q', `${params.get('q') ?? ''} is:unread`.trim())
     const page = await google<{ messages?: { id: string }[]; nextPageToken?: string }>(accountId, `${API}/messages?${params}`)
     const ids = (page.messages ?? []).map((m) => m.id)
     const cache = await summaries(accountId, ids)

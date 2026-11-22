@@ -267,7 +267,8 @@ function toAttachment(a: GAttachment): Attachment {
 }
 
 export const outlook: MailProvider = {
-  async list(accountId, target: ListTarget, count): Promise<ListResult> {
+  async list(accountId, target: ListTarget, count, options): Promise<ListResult> {
+    const unread = options?.unread ? ' and isRead eq false' : ''
     const top = Math.min(count, 500)
     if (target === 'snoozed') {
       const folderId = await snoozeFolderId(accountId, false)
@@ -290,10 +291,10 @@ export const outlook: MailProvider = {
     }
     const path =
       typeof target === 'object' && 'tag' in target
-        ? `/me/messages?$filter=receivedDateTime ge 1900-01-01T00:00:00Z and categories/any(c:c eq '${encodeURIComponent(quote(target.tag))}')&$orderby=receivedDateTime desc`
+        ? `/me/messages?$filter=receivedDateTime ge 1900-01-01T00:00:00Z and categories/any(c:c eq '${encodeURIComponent(quote(target.tag))}')${unread}&$orderby=receivedDateTime desc`
         : target === 'starred'
-        ? `/me/messages?$filter=receivedDateTime ge 1900-01-01T00:00:00Z and flag/flagStatus eq 'flagged'&$orderby=receivedDateTime desc`
-        : `/me/mailFolders/${typeof target === 'string' ? wellKnown[target] : encodeURIComponent((target as { folderId: string }).folderId)}/messages?$orderby=receivedDateTime desc`
+        ? `/me/messages?$filter=receivedDateTime ge 1900-01-01T00:00:00Z and flag/flagStatus eq 'flagged'${unread}&$orderby=receivedDateTime desc`
+        : `/me/mailFolders/${typeof target === 'string' ? wellKnown[target] : encodeURIComponent((target as { folderId: string }).folderId)}/messages?${unread ? `$filter=receivedDateTime ge 1900-01-01T00:00:00Z${unread}&` : ''}$orderby=receivedDateTime desc`
     const page = await graph<GraphPage<GMessage>>(accountId, `${path}&$top=${top}&$select=${SUMMARY_FIELDS}`)
     return {
       messages: page.value.map((m) => toSummary(accountId, m)),

@@ -5,6 +5,7 @@ import { NotificationSettings } from '../notify/NotificationSettings'
 import { BridgeSettings } from '../mail/imap/BridgeSettings'
 import { ImapAccountDialog } from '../mail/imap/ImapAccountDialog'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { PasteTransferLink, TransferDialog } from './DeviceTransfer'
 import { useTranslation } from 'react-i18next'
 import { appInfo } from '../config'
 import { href } from '../lib/router'
@@ -438,6 +439,7 @@ export function SettingsPage() {
   const s = useSettings()
   const toast = useStatus((x) => x.toast)
   const fileInput = useRef<HTMLInputElement>(null)
+  const [transferring, setTransferring] = useState(false)
   // Loaded ahead of the click so the Google sign-in popup is not blocked.
   useEffect(() => preloadGoogle(true), [])
 
@@ -567,6 +569,17 @@ export function SettingsPage() {
         </Field>
       </Section>
 
+      <Section title={t('transfer.section')} hint={t('transfer.sectionHint')}>
+        <div className="row-wrap">
+          <Button variant="filled" icon="link" onClick={() => setTransferring(true)} disabled={!s.accounts.length}>
+            {t('transfer.title')}
+          </Button>
+        </div>
+        <p className="body-small muted">{t('transfer.receiveHint')}</p>
+        <PasteTransferLink />
+        {transferring && <TransferDialog onClose={() => setTransferring(false)} />}
+      </Section>
+
       <Section title={t('settings.backup')} hint={t('settings.backupHint')}>
         <div className="row-wrap">
           <Button variant="outlined" icon="download" onClick={doExport}>
@@ -578,7 +591,6 @@ export function SettingsPage() {
           <input
             ref={fileInput}
             type="file"
-            accept="application/json,.json"
             hidden
             onChange={(e) => {
               const f = e.target.files?.[0]

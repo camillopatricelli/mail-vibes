@@ -7,7 +7,8 @@ import { href, useLocation } from '../lib/router'
 import { timeAgo, useNow } from '../lib/time'
 import { accountLabel, useSettings, type AccountSettings } from '../settings/store'
 import { useStatus } from '../status/store'
-import { AccountBadge, Button, EmptyState, Icon, IconButton, type IconName } from '../ui/components'
+import { create } from 'zustand'
+import { AccountBadge, Button, EmptyState, FilterChip, Icon, IconButton, type IconName } from '../ui/components'
 import { Dialog, Menu, Spinner } from '../ui/overlay'
 import { canDeleteForever, canSend, providerFor } from './api'
 import { AttachmentList } from './Attachments'
@@ -524,12 +525,20 @@ function TagTitle({ name }: { name: string }) {
   )
 }
 
+/** The "Unread" chip: stays on across folders until turned off (memory only). */
+const useUnreadOnly = create<{ on: boolean; toggle: () => void }>()((set, get) => ({ on: false, toggle: () => set({ on: !get().on }) }))
+
 function MailList({ view }: { view: MailView }) {
   const { t } = useTranslation()
   const folder = uiFolder(view)
+  const unreadOnly = useUnreadOnly()
+  // Drafts and scheduled messages have no read state worth filtering on.
+  const canFilterUnread = folder !== 'drafts' && folder !== 'scheduled'
+  const unread = unreadOnly.on && canFilterUnread
   const { accounts, threads, hasMore, isLoading, isFetching, errors, loadMore, refresh } = useMergedFolder(
     viewTarget(view),
     view.kind === 'custom' ? view.accountId : undefined,
+    unread,
   )
   const accountMap = useAccountMap()
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -584,6 +593,11 @@ function MailList({ view }: { view: MailView }) {
         {sel.length === 0 ? (
           <>
             <IconButton icon="refresh" label={t('mail.refresh')} onClick={refresh} disabled={isFetching} />
+            {canFilterUnread && (
+              <FilterChip selected={unreadOnly.on} onToggle={unreadOnly.toggle}>
+                {t('mail.unreadOnly')}
+              </FilterChip>
+            )}
             {isFetching && <Spinner size={18} label={t('mail.loading')} />}
             <span className="spacer" />
             <SyncStatus accounts={accounts} />
@@ -644,7 +658,7 @@ function MailList({ view }: { view: MailView }) {
           <Spinner label={t('mail.loading')} />
         </div>
       ) : !threads.length && !errors.length ? (
-        <EmptyState icon={view.kind === 'well' ? folderIcons[view.folder] : view.kind === 'tag' ? 'label' : view.kind === 'search' ? 'search' : 'folder'} title={view.kind === 'search' ? t('search.noMail') : t('mail.empty')} />
+        <EmptyState icon={view.kind === 'well' ? folderIcons[view.folder] : view.kind === 'tag' ? 'label' : view.kind === 'search' ? 'search' : 'folder'} title={unread ? t('mail.noUnreadHere') : view.kind === 'search' ? t('search.noMail') : t('mail.empty')} />
       ) : (
         <ul className="thread-list">
           {threads.map((th) => (

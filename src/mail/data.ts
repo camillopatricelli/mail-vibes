@@ -92,13 +92,15 @@ export function mailAccounts(accounts: AccountSettings[]) {
 
 const targetKey = (t: ListTarget) =>
   typeof t === 'string' ? t : 'tag' in t ? `tag:${t.tag.toLowerCase()}` : 'search' in t ? `search:${t.search}` : `folder:${t.folderId}`
-export const listKey = (accountId: string, target: ListTarget, count: number) => ['mail', 'list', accountId, targetKey(target), count] as const
+export const listKey = (accountId: string, target: ListTarget, count: number, unread = false) =>
+  ['mail', 'list', accountId, unread ? `${targetKey(target)}|unread` : targetKey(target), count] as const
 
 /** Loads one page of a folder (and remembers its addresses for suggestions). */
-export async function fetchList(accountId: string, target: ListTarget, count: number) {
-  const r = await providerFor(accountId).list(accountId, target, count)
+export async function fetchList(accountId: string, target: ListTarget, count: number, unread = false) {
+  const r = await providerFor(accountId).list(accountId, target, count, unread ? { unread } : undefined)
   rememberAddresses(r.messages.flatMap((m) => [m.from, ...m.to]))
-  return r
+  // Where a provider can't filter on the server (e.g. Outlook search), the page is filtered here.
+  return unread ? { ...r, messages: r.messages.filter((m) => !m.isRead) } : r
 }
 
 /**
@@ -108,13 +110,13 @@ export async function fetchList(accountId: string, target: ListTarget, count: nu
  * account that still has more to load are shown — otherwise an account with older mail could
  * appear "complete" while another account's messages from the same period are not loaded yet.
  */
-export function useMergedFolder(folder: ListTarget, onlyAccountId?: string) {
+export function useMergedFolder(folder: ListTarget, onlyAccountId?: string, unread = false) {
   const allAccounts = useSettings((s) => s.accounts)
   // A user folder belongs to one account and is shown even if that account is filtered out.
   const accounts = onlyAccountId ? allAccounts.filter((a) => a.id === onlyAccountId && isMailCapable(a.id)) : mailAccounts(allAccounts)
   const pollSec = useSettings((s) => s.pollIntervalSec)
   const [counts, setCounts] = useState<Record<string, number>>({})
-  const key = targetKey(folder)
+  const key = `${targetKey(folder)}|${unread}`
   const [countsFolder, setCountsFolder] = useState(key)
   if (countsFolder !== key) {
     setCountsFolder(key)
@@ -125,8 +127,8 @@ export function useMergedFolder(folder: ListTarget, onlyAccountId?: string) {
     queries: accounts.map((a) => {
       const count = counts[a.id] ?? PAGE_SIZE
       return {
-        queryKey: listKey(a.id, folder, count),
-        queryFn: () => fetchList(a.id, folder, count),
+        queryKey: listKey(a.id, folder, count, unread),
+        queryFn: () => fetchList(a.id, folder, count, unread),
         refetchInterval: pollSec * 1000,
         refetchIntervalInBackground: true,
         placeholderData: keepPreviousData,

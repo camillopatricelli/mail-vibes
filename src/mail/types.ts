@@ -92,6 +92,11 @@ export interface MailTag {
   color?: string
 }
 
+/** Only unread messages (the mail page's "Unread" chip); providers filter on the server where they can. */
+export interface ListOptions {
+  unread?: boolean
+}
+
 export interface ListResult {
   messages: MailSummary[]
   hasMore: boolean
@@ -115,7 +120,7 @@ export interface DraftRef {
 }
 
 export interface MailProvider {
-  list(accountId: string, target: ListTarget, count: number): Promise<ListResult>
+  list(accountId: string, target: ListTarget, count: number, options?: ListOptions): Promise<ListResult>
   thread(accountId: string, threadId: string): Promise<MailMessage[]>
   setRead(accountId: string, ids: string[], read: boolean): Promise<void>
   setFlagged(accountId: string, ids: string[], flagged: boolean): Promise<void>
