@@ -15,6 +15,8 @@ export const GOOGLE_SCOPES = [
   'email',
   'profile',
   'https://www.googleapis.com/auth/gmail.modify',
+  // Gmail filters (mail rules). Not required: without it only the rules page asks for it.
+  'https://www.googleapis.com/auth/gmail.settings.basic',
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
   'https://www.googleapis.com/auth/tasks',

@@ -712,7 +712,7 @@ function MessageCard({ m, expanded, onToggle, account, onAddTask }: { m: MailMes
         <AccountBadge color={account?.color ?? '#888'} label={displayName(m.from)} size={40} />
         {/* Clicking the header collapses the message; the addresses open their own menu. */}
         <div className="message__who" onClick={(e) => e.currentTarget.contains(e.target as Node) && onToggle()}>
-          <AddressMenu address={m.from} className="title-small">
+          <AddressMenu address={m.from} className="title-small" ruleAccountId={m.accountId}>
             {displayName(m.from)}
           </AddressMenu>
           <span className="body-small muted">&lt;{m.from.email}&gt;</span>

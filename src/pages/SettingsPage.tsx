@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { RulesLink } from '../mail/RulesPage'
 import { loadContacts } from '../contacts/contacts'
 import { NotificationSettings } from '../notify/NotificationSettings'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -473,6 +474,12 @@ export function SettingsPage() {
           </select>
         </Field>
         <MapsKeyField />
+      </Section>
+
+      <Section title={t('rules.title')} hint={t('rules.settingsHint')}>
+        <div>
+          <RulesLink />
+        </div>
       </Section>
 
       <Section title={t('notify.section')}>

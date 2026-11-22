@@ -57,7 +57,7 @@ export function PrivacyPage() {
       <h2 className="title-medium">{t('privacy.permTitle')}</h2>
       <p className="body-large">{t('privacy.permIntro')}</p>
       <ul className="body-large">
-        {(['permIdentity', 'permMail', 'permCalendar', 'permTasks', 'permContacts', 'permMeet', 'permOptional'] as const).map((k) => (
+        {(['permIdentity', 'permMail', 'permCalendar', 'permTasks', 'permContacts', 'permMeet', 'permRules', 'permOptional'] as const).map((k) => (
           <li key={k}>{t(`privacy.${k}`)}</li>
         ))}
       </ul>

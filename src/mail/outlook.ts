@@ -279,7 +279,7 @@ export const outlook: MailProvider = {
     if (typeof target === 'object' && 'search' in target) {
       // $search can't be combined with $orderby; Outlook returns the newest matches first.
       const kql = encodeURIComponent(`"${target.search.replace(/["\\]/g, ' ')}"`)
-      const page = await graph<GraphPage<GMessage>>(accountId, `/me/messages?$search=${kql}&$top=${top}&$select=${SUMMARY_FIELDS}`)
+      const page = await graph<GraphPage<GMessage>>(accountId, `${target.inbox ? '/me/mailFolders/inbox' : '/me'}/messages?$search=${kql}&$top=${top}&$select=${SUMMARY_FIELDS}`)
       return { messages: page.value.map((m) => toSummary(accountId, m)), hasMore: !!page['@odata.nextLink'] }
     }
     const path =

@@ -325,3 +325,24 @@
 .recipient-field--boxed:focus-within { border-color: var(--md-sys-color-primary); box-shadow: inset 0 0 0 1px var(--md-sys-color-primary); }
 .recipient-field--boxed .suggestions { left: 0; }
 .recipient-field--boxed .recipient-field__input { color: var(--md-sys-color-on-surface); }
+
+/* Mail rules (#/rules) */
+.rules__account { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rules__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.rule-row { display: flex; align-items: center; gap: 4px; padding: 8px 0; border-top: 1px solid var(--md-sys-color-outline-variant); }
+.rule-row:first-child { border-top: 0; }
+.rule-row.is-disabled .rule-row__text { opacity: 0.6; }
+.rule-row__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.rule-row__name { display: block; }
+.rule-row__arrow { vertical-align: middle; margin: 0 4px; color: var(--md-sys-color-on-surface-variant); }
+.rule-row__raw { font-family: ui-monospace, monospace; font-size: 13px; }
+.rules__consent { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rules__matches { margin: 8px 0 0; padding-left: 20px; max-height: 40vh; overflow: auto; }
+.rule-form { display: flex; flex-direction: column; gap: 16px; min-width: min(480px, 80vw); }
+.rule-form fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.rule-form legend { padding: 0; margin-bottom: 6px; }
+.rule-form__field { display: flex; flex-direction: column; gap: 4px; }
+.rule-form__moves { display: flex; flex-direction: column; gap: 8px; }
+.rule-form p { margin: 0; }
+.rule-form .text-field, .rule-form .select { flex: none; }
+.rules__list + div { margin-top: 8px; }

@@ -8,6 +8,7 @@ import { SearchPage } from './search/SearchPage'
 import { navigate, useLocation } from './lib/router'
 import { PrivacyPage, TodayPage } from './pages/SimplePages'
 import { SettingsPage } from './pages/SettingsPage'
+import { RulesPage } from './mail/RulesPage'
 import { SetupPage } from './pages/SetupPage'
 import { useSettings } from './settings/store'
 import { useContactsVersion } from './mail/addressBook'
@@ -73,6 +74,9 @@ export function App() {
       break
     case 'setup':
       page = <SetupPage params={params} />
+      break
+    case 'rules':
+      page = <RulesPage params={params} />
       break
   }
   return <AppShell>{page}</AppShell>

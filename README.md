@@ -27,6 +27,9 @@ policies. If your organisation uses it, its administrators decide whether to all
 - **Mail:** inbox, folders and Gmail labels; threads; reply, forward, drafts and attachments
   (PDFs and images open in the app); snooze and send later; tags (Gmail labels and Outlook
   categories); recipient suggestions from your contacts.
+- **Mail rules:** mark as read, archive, move or delete new messages by sender or by words they
+  contain. They are saved as Gmail filters and Outlook rules, so Google and Microsoft run them
+  even when Mail Vibes is closed.
 - **Calendar:** day, week, month and agenda views; create and edit events with guests, a
   location (with optional Google Maps suggestions), Google Meet or Teams links, repeat rules
   and several reminders, including days ahead.

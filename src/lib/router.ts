@@ -4,8 +4,8 @@ import { useSyncExternalStore } from 'react'
  * Tiny hash router (#/mail, #/settings ...). Hash routing works on GitHub Pages without
  * server rewrites, and never collides with the OAuth redirect parameters.
  */
-export type Route = 'today' | 'mail' | 'calendar' | 'tasks' | 'search' | 'settings' | 'privacy' | 'setup'
-const routes: Route[] = ['today', 'mail', 'calendar', 'tasks', 'search', 'settings', 'privacy', 'setup']
+export type Route = 'today' | 'mail' | 'calendar' | 'tasks' | 'search' | 'settings' | 'privacy' | 'setup' | 'rules'
+const routes: Route[] = ['today', 'mail', 'calendar', 'tasks', 'search', 'settings', 'privacy', 'setup', 'rules']
 
 export interface Location {
   route: Route | null

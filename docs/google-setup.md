@@ -55,6 +55,7 @@ openid
 https://www.googleapis.com/auth/userinfo.email
 https://www.googleapis.com/auth/userinfo.profile
 https://www.googleapis.com/auth/gmail.modify
+https://www.googleapis.com/auth/gmail.settings.basic
 https://www.googleapis.com/auth/calendar.events
 https://www.googleapis.com/auth/calendar.calendarlist.readonly
 https://www.googleapis.com/auth/tasks
@@ -66,6 +67,8 @@ These are the narrowest scopes that cover the app's features:
 
 - `gmail.modify` reads, sends, labels and moves mail to the bin. It cannot delete mail
   permanently. Google classes it as **restricted**.
+- `gmail.settings.basic` reads and edits Gmail filters, for mail rules. It also covers other
+  basic Gmail settings, which the app doesn't touch.
 - `calendar.events` creates and edits events, without access to calendar sharing settings.
   `calendar.calendarlist.readonly` only lists your calendars.
 - `tasks` reads and edits your task lists.

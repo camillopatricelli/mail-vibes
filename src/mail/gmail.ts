@@ -524,7 +524,7 @@ export const gmail: MailProvider = {
       if (q.q) params.set('q', q.q)
       if (q.spamTrash) params.set('includeSpamTrash', 'true')
     } else if ('search' in target) {
-      params.set('q', target.search)
+      params.set('q', target.inbox ? `in:inbox ${target.search}` : target.search)
     } else if ('tag' in target) {
       const label = (await labelInfo(accountId)).byName.get(target.tag.toLowerCase())
       if (!label) return { messages: [], hasMore: false }
