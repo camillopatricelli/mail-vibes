@@ -5,6 +5,8 @@ import { reauthHandlers } from '../shell/Banners'
 import { useStatus } from '../status/store'
 import { addGoogleAccount, forgetGoogleAccount, reauthGoogle } from './google'
 import { addMicrosoftAccount, forgetMicrosoftAccount, reauthMicrosoft } from './msal'
+import { forgetPassword, smtpKey } from '../mail/imap/passwords'
+import { closeSession } from '../mail/imap/session'
 
 /** Account lifecycle used by the UI (add / re-authenticate / remove), across providers. */
 
@@ -50,6 +52,11 @@ export async function addMicrosoft(tenantKey: string) {
 export async function removeAccount(accountId: string) {
   if (accountId.startsWith('microsoft:')) await forgetMicrosoftAccount(accountId)
   if (accountId.startsWith('google:')) await forgetGoogleAccount(accountId)
+  if (accountId.startsWith('imap:')) {
+    closeSession(accountId)
+    await forgetPassword(accountId)
+    await forgetPassword(smtpKey(accountId))
+  }
   useSettings.getState().removeAccount(accountId)
   useStatus.getState().clearError(accountId)
   queryClient.removeQueries({ predicate: (q) => q.queryKey.includes(accountId) })

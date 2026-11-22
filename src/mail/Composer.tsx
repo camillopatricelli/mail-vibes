@@ -4,7 +4,7 @@ import { fileSize } from '../lib/format'
 import { useSettings } from '../settings/store'
 import { Button, Icon, IconButton } from '../ui/components'
 import { Spinner } from '../ui/overlay'
-import { isMailCapable } from './api'
+import { canSend, isMailCapable } from './api'
 import { formatAddress, isValidEmail, parseAddresses, suggestAddresses } from './addressBook'
 import {
   attachFiles,
@@ -197,7 +197,7 @@ function SaveState({ c }: { c: Composer }) {
 
 function ComposerWindow({ c }: { c: Composer }) {
   const { t } = useTranslation()
-  const accounts = useSettings((s) => s.accounts).filter((a) => isMailCapable(a.id))
+  const accounts = useSettings((s) => s.accounts).filter((a) => isMailCapable(a.id) && canSend(a.id))
   const account = accounts.find((a) => a.id === c.accountId)
   const patch = useCompose((s) => s.patch)
   const [showCcBcc, setShowCcBcc] = useState(c.content.cc.length > 0 || c.content.bcc.length > 0)

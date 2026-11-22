@@ -9,7 +9,32 @@ import i18n from '../i18n'
  * Never put message, event, task or contact content in here.
  */
 
-export type Provider = 'google' | 'microsoft'
+export type Provider = 'google' | 'microsoft' | 'imap'
+
+export type MailSecurity = 'tls' | 'starttls'
+
+/** An IMAP or SMTP server, as entered by the user (never the password). */
+export interface MailServerSettings {
+  host: string
+  port: number
+  security: MailSecurity
+  username: string
+}
+
+/** Special folders an IMAP account can have, chosen by the server (SPECIAL-USE), by name, or by hand */
+export type SpecialFolder = 'sent' | 'drafts' | 'trash' | 'spam' | 'archive'
+export const specialFolders: SpecialFolder[] = ['sent', 'drafts', 'trash', 'spam', 'archive']
+
+/** Settings of an IMAP account (mail only; no calendar, tasks or contacts). */
+export interface ImapSettings {
+  incoming: MailServerSettings
+  /** Absent: the account can't send (receive-only, e.g. a PEC mailbox read in the app) */
+  outgoing?: MailServerSettings & { samePassword: boolean }
+  /** Italian certified email: original message shown from the envelope, receipts grouped */
+  pec: boolean
+  /** Special folders chosen by hand (mailbox path), overriding detection */
+  folders?: Partial<Record<SpecialFolder, string>>
+}
 export type Section = 'today' | 'mail' | 'calendar' | 'tasks'
 export type ThemePref = 'system' | 'light' | 'dark'
 /** When opened mail is marked as read: never automatically, on open, or after a few seconds */
@@ -28,6 +53,8 @@ export interface AccountSettings {
   color: string
   /** Microsoft only: key of the organisation (built-in in src/config.ts, or user-added) */
   tenantKey?: string
+  /** IMAP only: server settings */
+  imap?: ImapSettings
   /** Shown in merged views (filter chips) */
   visible: boolean
 }
@@ -76,6 +103,9 @@ export interface Settings {
   /** Include the bridge address and access key in the settings export file */
   exportBridge: boolean
 }
+
+/** Calendar, tasks and contacts exist only for Google and Microsoft 365 accounts (not IMAP). */
+export const hasPim = (accountId: string) => accountId.startsWith('google:') || accountId.startsWith('microsoft:')
 
 /** How an account is named in the app: its short name, else the holder's name, else the address. */
 export const accountLabel = (a: Pick<AccountSettings, 'label' | 'displayName' | 'email'>) => a.label || a.displayName || a.email
@@ -223,6 +253,8 @@ export function pickSettings(s: Settings): Settings {
 export function exportSettingsJson(s: Settings): string {
   const settings = pickSettings(s)
   if (!settings.exportBridge) delete settings.bridge
+  // Only the known server fields leave the device: never anything password-like.
+  settings.accounts = settings.accounts.map((a) => (a.imap ? { ...a, imap: parseImapSettings(a.imap) } : a))
   return JSON.stringify(
     { format: SETTINGS_FORMAT, version: SETTINGS_VERSION, exportedAt: new Date().toISOString(), settings },
     null,
@@ -271,11 +303,12 @@ export function parseSettingsJson(text: string): Settings {
         (a): a is AccountSettings =>
           !!a &&
           isStr(a.id) &&
-          (a.provider === 'google' || a.provider === 'microsoft') &&
+          (a.provider === 'google' || a.provider === 'microsoft' || (a.provider === 'imap' && !!parseImapSettings(a.imap))) &&
           isStr(a.email) &&
           isHex(a.color),
       )
       .map((a) => ({
+        ...(a.provider === 'imap' ? { imap: parseImapSettings(a.imap) } : {}),
         id: a.id,
         provider: a.provider,
         email: a.email,
@@ -303,6 +336,37 @@ export function parseSettingsJson(text: string): Settings {
   }
   if (s.tenantNames && typeof s.tenantNames === 'object') {
     for (const [k, v] of Object.entries(s.tenantNames)) if (isStr(v) && v.trim()) out.tenantNames[k] = v.trim()
+  }
+  return out
+}
+
+// ---------- IMAP accounts ----------
+
+const isHost = (v: unknown): v is string => isStr(v) && /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(v)
+
+function parseServer(v: unknown): MailServerSettings | undefined {
+  const s = v as Partial<MailServerSettings> | undefined
+  if (!s || !isHost(s.host) || typeof s.port !== 'number' || !Number.isInteger(s.port) || s.port < 1 || s.port > 65535) return undefined
+  if (s.security !== 'tls' && s.security !== 'starttls') return undefined
+  if (!isStr(s.username) || !s.username.trim()) return undefined
+  return { host: s.host.toLowerCase(), port: s.port, security: s.security, username: s.username.trim() }
+}
+
+/** Validates the IMAP settings of an imported account (passwords are never in the file). */
+export function parseImapSettings(v: unknown): ImapSettings | undefined {
+  const s = v as Partial<ImapSettings> | undefined
+  const incoming = parseServer(s?.incoming)
+  if (!s || !incoming) return undefined
+  const out: ImapSettings = { incoming, pec: s.pec === true }
+  const outgoing = parseServer(s.outgoing)
+  if (outgoing) out.outgoing = { ...outgoing, samePassword: s.outgoing?.samePassword !== false }
+  if (s.folders && typeof s.folders === 'object') {
+    const folders: Partial<Record<SpecialFolder, string>> = {}
+    for (const k of specialFolders) {
+      const f = (s.folders as Record<string, unknown>)[k]
+      if (isStr(f) && f) folders[k] = f
+    }
+    if (Object.keys(folders).length) out.folders = folders
   }
   return out
 }

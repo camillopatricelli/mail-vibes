@@ -96,3 +96,13 @@ export async function hasManageSieve(bridge: BridgeConfig, host: string): Promis
     return false
   }
 }
+
+/** Checks a user name and password (signs in and out, nothing else). */
+export async function verifyLogin(bridge: BridgeConfig, server: ServerConfig, password: string) {
+  const c = await ImapClient.connect(bridge, server)
+  try {
+    await c.login(server.username, password)
+  } finally {
+    await c.logout()
+  }
+}

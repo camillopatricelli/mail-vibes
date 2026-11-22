@@ -5,6 +5,7 @@ import type { Provider } from '../settings/store'
  * - Google Tasks "links" (tasks created from Gmail), read-only in the API
  * - Microsoft To Do "linkedResources" (flagged emails, tasks created from Outlook or this app)
  * - a Gmail or Outlook web address in the task notes (how this app links Google tasks)
+ * - a Mail Vibes address of a conversation in an IMAP account (IMAP has no web address)
  */
 export interface MailLink {
   provider: Provider
@@ -27,6 +28,12 @@ export function parseMailUrl(raw: string): MailLink | undefined {
     u = new URL(raw.replace(/[).,;]+$/, ''))
   } catch {
     return undefined
+  }
+  // Mail Vibes' own address of an IMAP conversation: …#/mail/<view>/t/imap:<email>/<threadId>
+  const imapThread = /#\/mail\/(?:.*\/)?t\/(imap(?:%3A|:)[^/]+)\/([^/?#]+)$/i.exec(u.hash)
+  if (imapThread) {
+    const accountId = decodeURIComponent(imapThread[1])
+    return { provider: 'imap', ids: [decodeURIComponent(imapThread[2])], url: u.href, email: accountId.slice(5) }
   }
   if (u.hostname === 'mail.google.com' && u.pathname.startsWith('/mail')) {
     if (!u.hash.includes('/')) return undefined

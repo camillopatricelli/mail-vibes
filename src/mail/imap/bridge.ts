@@ -172,3 +172,41 @@ export function openConnection(cfg: BridgeConfig, host: string, port: number, se
     }
   })
 }
+
+export interface DetectedServer {
+  protocol: 'imap' | 'smtp'
+  host: string
+  port: number
+  security: Security
+  /** May contain %EMAILADDRESS% / %EMAILLOCALPART% (Thunderbird's placeholders) */
+  username: string
+}
+
+/**
+ * Published settings for an email address's domain, looked up by the bridge (Thunderbird's
+ * database, the provider's autoconfig file, DNS SRV records). Always shown for the user to check.
+ */
+export async function autodetect(cfg: BridgeConfig, email: string): Promise<{ source?: string; servers: DetectedServer[] }> {
+  const n = normalizeBridgeUrl(cfg.url)
+  if ('error' in n) throw new BridgeError('unreachable', n.error)
+  const domain = email.split('@')[1]?.trim().toLowerCase()
+  if (!domain) return { servers: [] }
+  let r: Response
+  try {
+    r = await fetch(`${n.url}/autoconfig?domain=${encodeURIComponent(domain)}`, {
+      headers: { Authorization: `Bearer ${cfg.key}` },
+      signal: AbortSignal.timeout(20_000),
+    })
+  } catch {
+    throw new BridgeError('unreachable', 'unreachable')
+  }
+  if (r.status === 401) throw new BridgeError('key', 'key')
+  if (!r.ok) throw new BridgeError('refused', await r.text())
+  const j = (await r.json()) as { source?: string; servers?: DetectedServer[] }
+  const local = email.split('@')[0]
+  const servers = (j.servers ?? []).map((s) => ({
+    ...s,
+    username: s.username.replace(/%EMAILADDRESS%/g, email.trim()).replace(/%EMAILLOCALPART%/g, local).replace(/%EMAILDOMAIN%/g, domain),
+  }))
+  return { source: j.source, servers }
+}

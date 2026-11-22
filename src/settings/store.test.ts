@@ -107,3 +107,32 @@ describe('IMAP bridge in the export file', () => {
     expect(parseSettingsJson(file).bridge).toBeUndefined()
   })
 })
+
+describe('IMAP accounts in the export file', () => {
+  const imap = {
+    id: 'imap:1',
+    provider: 'imap' as const,
+    email: 'me@example.com',
+    displayName: 'Me',
+    color: '#188038',
+    visible: true,
+    imap: {
+      incoming: { host: 'imap.example.com', port: 993, security: 'tls' as const, username: 'user-id' },
+      outgoing: { host: 'smtp.example.com', port: 465, security: 'tls' as const, username: 'user-id', samePassword: true },
+      pec: true,
+      folders: { sent: 'INBOX.Posta inviata' },
+    },
+  }
+  it('round-trips server settings', () => {
+    const back = parseSettingsJson(exportSettingsJson({ ...sample, accounts: [imap] }))
+    expect(back.accounts[0]).toEqual(imap)
+  })
+  it('never contains a password, and drops accounts with broken settings', () => {
+    const withPw = { ...imap, imap: { ...imap.imap, password: 'secret' } } as unknown as typeof imap
+    const file = exportSettingsJson({ ...sample, accounts: [withPw] })
+    expect(file).not.toContain('secret')
+    expect(parseSettingsJson(file).accounts[0].imap).not.toHaveProperty('password')
+    const broken = { ...imap, imap: { ...imap.imap, incoming: { ...imap.imap.incoming, host: 'not a host' } } }
+    expect(parseSettingsJson(exportSettingsJson({ ...sample, accounts: [broken] })).accounts).toEqual([])
+  })
+})

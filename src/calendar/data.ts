@@ -2,12 +2,12 @@ import { keepPreviousData, useQueries } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import i18n from '../i18n'
 import { queryClient } from '../lib/queryClient'
-import { useSettings, type AccountSettings } from '../settings/store'
+import { hasPim, useSettings, type AccountSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 import { calendarFor, calendarKey } from './api'
 import type { CalEvent, CalendarInfo, EventDraft } from './types'
 
-export const calendarAccounts = (accounts: AccountSettings[]) => accounts.filter((a) => a.visible)
+export const calendarAccounts = (accounts: AccountSettings[]) => accounts.filter((a) => a.visible && hasPim(a.id))
 
 /** All calendars of the visible accounts (hidden calendars included, flagged). */
 export function useCalendars() {

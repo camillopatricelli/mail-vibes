@@ -36,3 +36,13 @@ describe('notes', () => {
     expect(findMailUrl('see https://example.com')).toBeUndefined()
   })
 })
+
+describe('IMAP conversation links', () => {
+  it('recognises Mail Vibes addresses of IMAP conversations', () => {
+    const url = 'https://app.example.com/mail-vibes/#/mail/inbox/t/imap%3Ame%40example.com/mPGFiY0BleGFtcGxlLmNvbT4'
+    expect(parseMailUrl(url)).toEqual({ provider: 'imap', ids: ['mPGFiY0BleGFtcGxlLmNvbT4'], url, email: 'me@example.com' })
+    expect(findMailUrl(`Call back\n\n✉ Offer ${url}`)?.provider).toBe('imap')
+    expect(parseMailUrl('https://app.example.com/#/mail/inbox')).toBeUndefined()
+  })
+})
+

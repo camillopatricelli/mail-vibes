@@ -9,6 +9,7 @@ import { accountLabel, useSettings, type AccountSettings } from '../settings/sto
 import { useStatus } from '../status/store'
 import { AccountBadge, Button, Card, Icon, IconButton } from '../ui/components'
 import { Dialog, Spinner } from '../ui/overlay'
+import { hasRules } from './api'
 import { mailAccounts, useFolders } from './data'
 import {
   applyToExisting,
@@ -30,7 +31,7 @@ const rulesKey = (accountId: string) => ['mail', 'rules', accountId] as const
 /** #/rules: each mail account's own rules (Gmail filters, Outlook rules). #/rules/new/<account>/<from> opens the form. */
 export function RulesPage({ params }: { params: string[] }) {
   const { t } = useTranslation()
-  const accounts = mailAccounts(useSettings((s) => s.accounts))
+  const accounts = mailAccounts(useSettings((s) => s.accounts)).filter((a) => hasRules(a.id))
   // Loaded ahead of a click, so the Google permission popup is not blocked.
   useEffect(() => preloadGoogle(), [])
   const [editing, setEditing] = useState<{ accountId: string; rule?: MailRule; from?: string } | null>(null)

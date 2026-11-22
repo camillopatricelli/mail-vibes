@@ -6,7 +6,7 @@ import type { Address } from '../mail/types'
 import { graph, type GraphPage } from '../providers/graph'
 import { google } from '../providers/google'
 import { queryClient } from '../lib/queryClient'
-import { useSettings, type AccountSettings } from '../settings/store'
+import { hasPim, useSettings, type AccountSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 
 /**
@@ -63,8 +63,8 @@ const contactsKey = (accountId: string) => ['contacts', accountId] as const
  * back in front after a couple of minutes (e.g. after editing a contact in another tab).
  */
 export function useContactsSync() {
-  const accounts = useSettings((s) => s.accounts)
-  const preferred = useSettings((s) => s.defaults.contactsAccountId ?? s.accounts[0]?.id)
+  const accounts = useSettings((s) => s.accounts).filter((a) => hasPim(a.id))
+  const preferred = useSettings((s) => s.defaults.contactsAccountId ?? s.accounts.find((a) => hasPim(a.id))?.id)
   const results = useQueries({
     queries: accounts.map((a) => ({
       queryKey: contactsKey(a.id),
@@ -91,7 +91,8 @@ export function openContact(email: string) {
 /** The account new contacts are saved to: the chosen default, else the first account. */
 export function contactsAccount(): AccountSettings | undefined {
   const s = useSettings.getState()
-  return s.accounts.find((a) => a.id === s.defaults.contactsAccountId) ?? s.accounts[0]
+  const pim = s.accounts.filter((a) => hasPim(a.id))
+  return pim.find((a) => a.id === s.defaults.contactsAccountId) ?? pim[0]
 }
 
 function splitName(name: string) {

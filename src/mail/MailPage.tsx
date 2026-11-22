@@ -9,7 +9,7 @@ import { accountLabel, useSettings, type AccountSettings } from '../settings/sto
 import { useStatus } from '../status/store'
 import { AccountBadge, Button, EmptyState, Icon, IconButton, type IconName } from '../ui/components'
 import { Dialog, Menu, Spinner } from '../ui/overlay'
-import { canDeleteForever, providerFor } from './api'
+import { canDeleteForever, canSend, providerFor } from './api'
 import { AttachmentList } from './Attachments'
 import { openDraft, openNew, openReply } from './compose'
 import i18n from '../i18n'
@@ -781,13 +781,17 @@ function MessageCard({ m, expanded, onToggle, account, onAddTask }: { m: MailMes
         ) : (
           <>
             <IconButton icon="star" selected={m.isFlagged} label={m.isFlagged ? t('mail.unstar') : t('mail.star')} onClick={() => void mailActions.setFlagged([m], !m.isFlagged)} />
-            <IconButton icon="reply" label={t('mail.reply')} onClick={() => void openReply(m, 'reply')} />
+            {canSend(m.accountId) && <IconButton icon="reply" label={t('mail.reply')} onClick={() => void openReply(m, 'reply')} />}
             <Menu
               label={t('mail.more')}
               trigger={(p) => <IconButton icon="more_vert" label={t('mail.more')} {...p} />}
               items={[
-                { label: t('mail.replyAll'), icon: 'reply_all', onSelect: () => void openReply(m, 'replyAll') },
-                { label: t('mail.forward'), icon: 'forward', onSelect: () => void openReply(m, 'forward') },
+                ...(canSend(m.accountId)
+                  ? [
+                      { label: t('mail.replyAll'), icon: 'reply_all' as const, onSelect: () => void openReply(m, 'replyAll') },
+                      { label: t('mail.forward'), icon: 'forward' as const, onSelect: () => void openReply(m, 'forward') },
+                    ]
+                  : []),
                 m.isRead
                   ? { label: t('mail.markUnread'), icon: 'mark_email_unread', onSelect: () => void mailActions.setRead([m], false) }
                   : { label: t('mail.markRead'), icon: 'mark_email_read', onSelect: () => void mailActions.setRead([m], true) },
@@ -965,7 +969,7 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
           />
         ))}
       </ul>
-      {latest && !latest.isDraft && (
+      {latest && !latest.isDraft && canSend(latest.accountId) && (
         <div className="thread__reply">
           <Button variant="outlined" icon="reply" onClick={() => void openReply(latest, 'reply')}>
             {t('mail.reply')}

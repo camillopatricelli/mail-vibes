@@ -3,6 +3,7 @@ import { RulesLink } from '../mail/RulesPage'
 import { loadContacts } from '../contacts/contacts'
 import { NotificationSettings } from '../notify/NotificationSettings'
 import { BridgeSettings } from '../mail/imap/BridgeSettings'
+import { ImapAccountDialog } from '../mail/imap/ImapAccountDialog'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { appInfo } from '../config'
@@ -23,7 +24,9 @@ import {
   type Provider,
   accountLabel,
   accountLongLabel,
+  hasPim,
 } from '../settings/store'
+import { canSend } from '../mail/api'
 import { useStatus } from '../status/store'
 import { AccountBadge, Button, Card, IconButton } from '../ui/components'
 import { Dialog } from '../ui/overlay'
@@ -113,6 +116,7 @@ function AccountRow({ a }: { a: AccountSettings }) {
   const tenantName = useSettings((s) => selectTenants(s).find((x) => x.key === a.tenantKey)?.name)
   const st = useStatus((s) => s.accounts[a.id])
   const now = useNow()
+  const [editing, setEditing] = useState(false)
   const state = st?.error
     ? st.error.kind === 'auth'
       ? t('accounts.needsSignIn')
@@ -143,7 +147,13 @@ function AccountRow({ a }: { a: AccountSettings }) {
           </label>
         )}
         <p className="body-small muted">
-          {a.email} · {a.provider === 'google' ? t('accounts.google') : tenantName ?? t('accounts.microsoft')} · {state}
+          {a.email} ·{' '}
+          {a.provider === 'google'
+            ? t('accounts.google')
+            : a.provider === 'imap'
+              ? `${a.imap?.pec ? 'PEC' : 'IMAP'} (${a.imap?.incoming.host})`
+              : (tenantName ?? t('accounts.microsoft'))}{' '}
+          · {state}
         </p>
         <ColorPicker
           value={a.color}
@@ -151,6 +161,8 @@ function AccountRow({ a }: { a: AccountSettings }) {
           onChange={(color) => updateAccount(a.id, { color })}
         />
       </div>
+      {a.provider === 'imap' && <IconButton icon="edit" label={`${t('imap.editAccount')} ${a.email}`} onClick={() => setEditing(true)} />}
+      {editing && <ImapAccountDialog accountId={a.id} onClose={() => setEditing(false)} />}
       <IconButton icon="delete" label={`${t('settings.removeAccount')} ${a.email}`} onClick={() => {
           if (confirm(t('settings.removeConfirm', { account: a.email }))) void removeAccount(a.id)
         }}
@@ -273,6 +285,22 @@ function TenantsSection() {
   )
 }
 
+/** IMAP accounts need the user's bridge (Settings → IMAP bridge). */
+function AddImapButton() {
+  const { t } = useTranslation()
+  const bridge = useSettings((s) => s.bridge)
+  const [open, setOpen] = useState(false)
+  const ready = !!bridge?.url && !!bridge.key
+  return (
+    <>
+      <Button variant="tonal" icon="add" disabled={!ready} title={ready ? undefined : t('imap.needsBridge')} onClick={() => setOpen(true)}>
+        {t('imap.addAccount')}
+      </Button>
+      {open && <ImapAccountDialog onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
 function AddMicrosoftButton() {
   const { t } = useTranslation()
   const customTenants = useSettings((s) => s.customTenants)
@@ -324,7 +352,9 @@ function DefaultSelect({
   provider?: Provider
 }) {
   const { t } = useTranslation()
-  const accounts = useSettings((s) => s.accounts).filter((a) => !provider || a.provider === provider)
+  const accounts = useSettings((s) => s.accounts).filter(
+    (a) => (!provider || a.provider === provider) && (field === 'sendAccountId' ? canSend(a.id) : hasPim(a.id)),
+  )
   const value = useSettings((s) => s.defaults[field])
   const setDefaults = useSettings((s) => s.setDefaults)
   return (
@@ -451,6 +481,7 @@ export function SettingsPage() {
           >
             {t('settings.addGoogle')}
           </Button>
+          <AddImapButton />
         </div>
       </Section>
 

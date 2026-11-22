@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import i18n from '../i18n'
 import { useSettings } from '../settings/store'
 import { useStatus } from '../status/store'
-import { isMailCapable, providerFor } from './api'
+import { canSend, isMailCapable, providerFor } from './api'
 import { isValidEmail } from './addressBook'
 import { refreshAccountMail } from './data'
 import { htmlToText, sanitizeForEditor } from './html'
@@ -127,7 +127,7 @@ const newId = () => `c${Date.now().toString(36)}${Math.random().toString(36).sli
 
 export function defaultSendAccount() {
   const s = useSettings.getState()
-  const capable = s.accounts.filter((a) => isMailCapable(a.id))
+  const capable = s.accounts.filter((a) => isMailCapable(a.id) && canSend(a.id))
   return capable.find((a) => a.id === s.defaults.sendAccountId)?.id ?? capable[0]?.id
 }
 

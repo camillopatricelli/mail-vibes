@@ -7,7 +7,7 @@ import { contactOf, formatAddress } from './addressBook'
 import { openNew } from './compose'
 import type { Address } from './types'
 import { navigate } from '../lib/router'
-import { isMailCapable } from './api'
+import { hasRules, isMailCapable } from './api'
 
 /**
  * An address in a message: click or right-click for "Write", "Copy" and "Add to contacts".
@@ -51,7 +51,7 @@ export function AddressMenu({ address, children, className, ruleAccountId }: { a
         known
           ? { label: t('contacts.open'), icon: 'contacts', disabled: !known.url, onSelect: () => openContact(address.email) }
           : { label: t('contacts.add', { account: target?.email ?? '' }), icon: 'person_add', disabled: !target, onSelect: () => void addContact(address) },
-        ...(ruleAccountId && isMailCapable(ruleAccountId)
+        ...(ruleAccountId && isMailCapable(ruleAccountId) && hasRules(ruleAccountId)
           ? [{ label: t('rules.fromSender'), icon: 'filter_list' as const, onSelect: () => navigate('rules', 'new', ruleAccountId, address.email) }]
           : []),
       ]}

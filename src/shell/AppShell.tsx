@@ -1,4 +1,5 @@
 import { useSnoozeWaker } from '../mail/useSnoozeWaker'
+import { PasswordPrompt } from '../mail/imap/PasswordPrompt'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { appInfo } from '../config'
@@ -218,6 +219,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </main>
       <BottomNav active={route} />
       <ComposerStack />
+      <PasswordPrompt />
       <Toasts />
     </div>
   )

@@ -4,7 +4,7 @@ import { addDays, DAY, startOfDay } from '../calendar/dates'
 import i18n from '../i18n'
 import { continued, nextOccurrence } from '../lib/recurrence'
 import { queryClient } from '../lib/queryClient'
-import { useSettings, type AccountSettings } from '../settings/store'
+import { hasPim, useSettings, type AccountSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 import { googleTasks } from './googleTasks'
 import { todo } from './todo'
@@ -26,7 +26,7 @@ type AccountError = { account: AccountSettings; error: Error; refetch: () => unk
 
 /** Task lists of the visible accounts (hidden lists included, flagged). */
 export function useTaskLists() {
-  const accounts = useSettings((s) => s.accounts).filter((a) => a.visible)
+  const accounts = useSettings((s) => s.accounts).filter((a) => a.visible && hasPim(a.id))
   const hidden = useSettings((s) => s.hiddenTaskLists)
   const results = useQueries({
     queries: accounts.map((a) => ({

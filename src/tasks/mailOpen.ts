@@ -1,5 +1,5 @@
 import i18n from '../i18n'
-import { goMail } from '../mail/routes'
+import { goMail, mailHref } from '../mail/routes'
 import type { MailSummary } from '../mail/types'
 import { graph, ApiError } from '../providers/graph'
 import { google } from '../providers/google'
@@ -45,11 +45,17 @@ export async function openMailLink(link: MailLink, taskAccountId: string) {
     return (link.email && a.email.toLowerCase() === link.email.toLowerCase() ? 2 : 0) + (a.id === taskAccountId ? 1 : 0)
   }
   try {
-    for (const a of accounts)
-      for (const id of link.ids) {
-        const threadId = await findThread(a.id, link.provider, id)
-        if (threadId) return goMail({ kind: 'well', folder: 'inbox' }, { accountId: a.id, threadId })
-      }
+    // IMAP: the link names the account (its address) and the conversation.
+    if (link.provider === 'imap') {
+      const a = accounts.find((x) => x.email.toLowerCase() === link.email?.toLowerCase())
+      if (a && link.ids[0]) return goMail({ kind: 'well', folder: 'inbox' }, { accountId: a.id, threadId: link.ids[0] })
+    } else {
+      for (const a of accounts)
+        for (const id of link.ids) {
+          const threadId = await findThread(a.id, link.provider, id)
+          if (threadId) return goMail({ kind: 'well', folder: 'inbox' }, { accountId: a.id, threadId })
+        }
+    }
   } catch (e) {
     toast({ tone: 'error', message: i18n.t('tasks.mailOpenFailed', { reason: (e as Error).message }) })
     return
@@ -65,6 +71,14 @@ export async function openMailLink(link: MailLink, taskAccountId: string) {
 /** What a new task needs to link back to this email (Outlook's web address takes a request). */
 export async function mailSource(m: MailSummary): Promise<MailSource> {
   const account = useSettings.getState().accounts.find((a) => a.id === m.accountId)
+  if (m.accountId.startsWith('imap:'))
+    return {
+      provider: 'imap',
+      id: m.threadId,
+      subject: m.subject,
+      // The conversation in Mail Vibes (found again wherever the message is moved).
+      url: `${location.origin}${location.pathname}${mailHref({ kind: 'well', folder: 'inbox' }, { accountId: m.accountId, threadId: m.threadId })}`,
+    }
   if (m.accountId.startsWith('google:'))
     return {
       provider: 'google',
