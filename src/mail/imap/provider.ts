@@ -2,7 +2,7 @@ import i18n from '../../i18n'
 import { specialFolders, useSettings, type SpecialFolder } from '../../settings/store'
 import { useStatus } from '../../status/store'
 import type { Attachment, FolderKind, ListTarget, MailFolder, MailMessage, MailProvider, MailSummary, PecDetails } from '../types'
-import { isDeleted, isDraftFlag, isFlagged, isSeen, parseSummary, SUMMARY_ITEMS, threadRoot, type FetchedSummary } from './envelope'
+import { isDeleted, isDraftFlag, isFlagged, isSeen, parseInternalDate, parseSummary, SUMMARY_ITEMS, threadRoot, type FetchedSummary } from './envelope'
 import { isInbox, type ListedFolder } from './folders'
 import { folderId, folderPath, messageId, parseMessageId, parseThreadId, threadIdOf } from './ids'
 import { parseMessage, type ParsedMessage } from './message'
@@ -94,15 +94,60 @@ function summariesFrom(responses: ImapResponse[]) {
     .filter((s) => !isDeleted(s.flags))
 }
 
-/** The newest `count` messages of a folder (by sequence number: no search needed). */
+/**
+ * Arrival dates of all messages of a folder (UID -> INTERNALDATE). The order messages were added
+ * in isn't their date order (old mail moved or archived into a folder comes last), so lists pick
+ * the newest by date. Built once per folder, then only new messages are fetched.
+ */
+interface DateIndex {
+  uidValidity: number
+  dates: Map<number, number>
+  maxUid: number
+}
+const dateIndexes = new Map<string, DateIndex>()
+
+function addDates(idx: DateIndex, responses: ImapResponse[]) {
+  for (const r of responses) {
+    if (r.type !== 'FETCH') continue
+    const a = fetchAttributes(r)
+    const uid = Number(asText(a.get('UID')))
+    if (!uid) continue
+    idx.dates.set(uid, parseInternalDate(asText(a.get('INTERNALDATE'))))
+    idx.maxUid = Math.max(idx.maxUid, uid)
+  }
+}
+
+async function datesOf(ctx: Ctx, accountId: string, path: string, box: { uidValidity: number; exists: number }) {
+  const key = cacheKey(accountId, path)
+  let idx = dateIndexes.get(key)
+  if (idx && idx.uidValidity !== box.uidValidity) idx = undefined
+  if (idx && idx.dates.size < box.exists) addDates(idx, (await ctx.client.run([`UID FETCH ${idx.maxUid + 1}:* (UID INTERNALDATE)`], 120_000)).untagged)
+  // Messages removed elsewhere (or several new ones in odd order): read all dates again.
+  if (!idx || idx.dates.size !== box.exists) {
+    idx = { uidValidity: box.uidValidity, dates: new Map(), maxUid: 0 }
+    addDates(idx, (await ctx.client.run(['FETCH 1:* (UID INTERNALDATE)'], 180_000)).untagged)
+  }
+  dateIndexes.set(key, idx)
+  return idx
+}
+
+/** After this app moved or deleted messages: they're no longer in the folder. */
+function forgetDates(accountId: string, path: string, uids: number[]) {
+  const idx = dateIndexes.get(cacheKey(accountId, path))
+  for (const u of uids) idx?.dates.delete(u)
+}
+
+/** The newest `count` messages of a folder, by arrival date. */
 async function listFolder(ctx: Ctx, accountId: string, path: string, count: number) {
   const box = await ctx.select(path, true)
   if (!box.exists) return { messages: [], hasMore: false }
-  const from = Math.max(1, box.exists - count + 1)
-  const r = await ctx.client.run([`FETCH ${from}:${box.exists} ${SUMMARY_ITEMS}`], 120_000)
+  const idx = await datesOf(ctx, accountId, path, box)
+  const newest = [...idx.dates].sort((a, b) => b[1] - a[1] || b[0] - a[0]).slice(0, count).map(([uid]) => uid)
+  if (!newest.length) return { messages: [], hasMore: false }
+  const r = await ctx.client.run([`UID FETCH ${newest.join(',')} ${SUMMARY_ITEMS}`], 120_000)
   const summaries = summariesFrom(r.untagged)
   if (!ctx.account.imap?.pec && summaries.some((s) => s.pec)) suggestPec(accountId)
-  return { messages: summaries.map((s) => toSummary(accountId, path, box.uidValidity, s)), hasMore: from > 1 }
+  return { messages: summaries.map((s) => toSummary(accountId, path, box.uidValidity, s)), hasMore: idx.dates.size > count }
 }
 
 /** PEC messages in an account not marked as PEC: offer to mark it (once per session). */
@@ -347,6 +392,7 @@ export const imap: MailProvider = {
           r = await ctx.client.run([`UID COPY ${set} `, { str: to }], 120_000)
           await expunge(ctx, set)
         }
+        forgetDates(accountId, path, refs.map((x) => x.uid))
         const copied = copiedUids([...r.untagged, r.done])
         for (const ref of refs) {
           const uid = copied?.map.get(ref.uid)
@@ -361,10 +407,11 @@ export const imap: MailProvider = {
 
   async deleteForever(accountId, ids) {
     await session(accountId).run(async (ctx) => {
-      for (const [, group] of groupByFolder(ids)) {
+      for (const [path, group] of groupByFolder(ids)) {
         const uids = []
         for (const id of group) uids.push((await selectFor(ctx, id)).uid)
         await expunge(ctx, uids.join(','))
+        forgetDates(accountId, path, uids)
       }
     })
   },
