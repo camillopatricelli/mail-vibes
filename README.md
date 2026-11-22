@@ -113,8 +113,9 @@ To build Microsoft 365 organisations into your copy, set `VITE_MS_TENANTS` (see
 - Notifications only arrive while the app is open in a tab or as an installed app.
 - Microsoft 365 needs an app registration in each organisation, and its administrator may need to
   approve it.
-- Only Google and Microsoft 365 accounts. Other mail providers (IMAP, PEC) can't be reached from a
-  browser without a server; see [TODO.md](TODO.md).
+- Only Google and Microsoft 365 accounts for now. Mailboxes that offer only IMAP/SMTP (for example
+  PEC) need a small bridge you deploy yourself: see [docs/imap-bridge.md](docs/imap-bridge.md).
+  Support for these accounts is being built.
 - Outlook events allow one reminder; Google Calendar allows up to five.
 - Google Tasks has no start date, reminder or repeat fields: Mail Vibes keeps them in the task's
   notes and creates the next task itself when a repeating one is done.
@@ -135,7 +136,7 @@ On Windows, run commands from a path with an upper-case drive letter (`C:\...`);
 start from `c:\...`.
 
 Built with React, TypeScript, Vite, TanStack Query, Zustand, i18next, MSAL and Google Identity
-Services. Planned work is in [TODO.md](TODO.md).
+Services.
 
 ## Licence
 
