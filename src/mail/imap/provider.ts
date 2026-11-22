@@ -12,13 +12,16 @@ import { NotYetError, session, type Ctx } from './session'
  *
  * Threads are built by the app from References / In-Reply-To (IMAP has no conversations): a
  * thread is identified by its first Message-ID, and opening it searches the folders where its
- * messages were seen, plus Inbox, Sent and Archive.
+ * messages were seen, plus Inbox, Sent and Archive. PEC servers search headers very slowly
+ * (half a minute on a big Inbox), so PEC threads hold only the messages already listed.
  */
 
 // ---------- Caches (memory only) ----------
 
 /** Folders where each thread's messages were listed, to find them again when it's opened */
 const threadFolders = new Map<string, Set<string>>()
+/** Messages listed for each thread (PEC accounts open threads from these, without searching) */
+const threadMessages = new Map<string, Set<string>>()
 /** Whole messages already downloaded and parsed (a few, for attachments and re-opening) */
 const parsed = new Map<string, ParsedMessage>()
 const PARSED_MAX = 30
@@ -49,6 +52,9 @@ function toSummary(accountId: string, path: string, uidValidity: number, s: Fetc
     const set = threadFolders.get(k) ?? new Set<string>()
     set.add(path)
     threadFolders.set(k, set)
+    const ids = threadMessages.get(k) ?? new Set<string>()
+    ids.add(id)
+    threadMessages.set(k, ids)
   }
   return {
     accountId,
@@ -178,6 +184,12 @@ export const imap: MailProvider = {
       if ('message' in t) {
         const ref = parseMessageId(t.message)
         summaries = await fetchByUid(ctx, accountId, ref.path, [ref.uid])
+      } else if (ctx.account.imap?.pec && threadMessages.get(cacheKey(accountId, threadId))?.size) {
+        for (const [path, ids] of groupByFolder([...threadMessages.get(cacheKey(accountId, threadId))!])) {
+          const box = await ctx.select(path)
+          const uids = ids.map(parseMessageId).filter((r) => r.uidValidity === box.uidValidity).map((r) => r.uid)
+          summaries.push(...(await fetchByUid(ctx, accountId, path, uids)))
+        }
       } else {
         const seen = threadFolders.get(cacheKey(accountId, threadId))
         const where = new Set<string>([...(seen ?? []), 'INBOX', special.sent, special.archive].filter((p): p is string => !!p))
