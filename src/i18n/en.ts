@@ -699,6 +699,7 @@ const en = {
     withPasswords_other: '{{count}} IMAP passwords come along.',
     signInAfter: 'Google and Microsoft sign-ins can\u2019t be copied: after this, sign in to each of those accounts once (a banner asks for each).',
     replaces: 'This replaces everything set up on this device.',
+    willRemove: 'These accounts are not on the other device and will be removed from this one (with their sign-ins and saved passwords): {{accounts}}.',
     apply: 'Set up this device',
     applied: 'Setup copied. Sign in to each account where a banner asks.',
     applyFailed: 'The setup couldn\u2019t be applied: {{reason}}',

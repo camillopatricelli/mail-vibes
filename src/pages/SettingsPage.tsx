@@ -31,7 +31,7 @@ import { canSend } from '../mail/api'
 import { useStatus } from '../status/store'
 import { AccountBadge, Button, Card, IconButton } from '../ui/components'
 import { Dialog } from '../ui/overlay'
-import { addGoogle, addMicrosoft, removeAccount } from '../auth/accounts'
+import { addGoogle, addMicrosoft, removeAccount, replaceSetup } from '../auth/accounts'
 import { googleConfigured, preloadGoogle } from '../auth/google'
 
 
@@ -456,7 +456,7 @@ export function SettingsPage() {
   const doImport = async (file: File) => {
     try {
       const parsed = parseSettingsJson(await file.text())
-      s.replaceAll(parsed)
+      await replaceSetup(parsed)
       toast({ tone: 'success', message: t('settings.importOk') })
     } catch (e) {
       toast({ tone: 'error', message: t('settings.importFailed', { reason: (e as Error).message }) })

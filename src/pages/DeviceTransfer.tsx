@@ -12,6 +12,7 @@ import {
   transferUrl,
   type Transfer,
 } from '../lib/deviceTransfer'
+import { replaceSetup } from '../auth/accounts'
 import { navigate } from '../lib/router'
 import { accountLongLabel, useSettings } from '../settings/store'
 import { useStatus } from '../status/store'
@@ -172,7 +173,7 @@ export function ReceiveTransfer({ payload }: { payload: string }) {
     setBusy(true)
     try {
       const settings = transferSettings(opened)
-      useSettings.getState().replaceAll(settings)
+      await replaceSetup(settings)
       await storeTransferPasswords(opened, settings)
       toast({ tone: 'success', message: t('transfer.applied') })
       navigate('settings')
@@ -238,6 +239,12 @@ export function ReceiveTransfer({ payload }: { payload: string }) {
             </p>
             <p className="body-small">{t('transfer.signInAfter')}</p>
             {current.length > 0 && <p className="body-small field-error">{t('transfer.replaces')}</p>}
+            {(() => {
+              const removed = current.filter((a) => !preview.accounts.some((x) => x.id === a.id))
+              return removed.length > 0 && (
+                <p className="body-small field-error">{t('transfer.willRemove', { accounts: removed.map(accountLongLabel).join(', ') })}</p>
+              )
+            })()}
             <div className="row-wrap">
               <Button variant="filled" icon="sync" disabled={busy} onClick={() => void apply()}>
                 {t('transfer.apply')}

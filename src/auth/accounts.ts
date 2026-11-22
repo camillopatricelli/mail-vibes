@@ -1,6 +1,6 @@
 import i18n from '../i18n'
 import { queryClient } from '../lib/queryClient'
-import { useSettings } from '../settings/store'
+import { useSettings, type Settings } from '../settings/store'
 import { reauthHandlers } from '../shell/Banners'
 import { useStatus } from '../status/store'
 import { addGoogleAccount, forgetGoogleAccount, reauthGoogle } from './google'
@@ -47,6 +47,16 @@ export async function addMicrosoft(tenantKey: string) {
   } catch (e) {
     useStatus.getState().toast({ tone: 'error', message: i18n.t('accounts.signInFailed', { reason: (e as Error).message }) })
   }
+}
+
+/**
+ * Replaces the whole setup (an imported file, or a copy from another device). Accounts that are
+ * not in the new setup are removed as if by hand: their sign-ins and saved passwords go too.
+ */
+export async function replaceSetup(settings: Settings) {
+  const keep = new Set(settings.accounts.map((a) => a.id))
+  for (const a of useSettings.getState().accounts) if (!keep.has(a.id)) await removeAccount(a.id)
+  useSettings.getState().replaceAll(settings)
 }
 
 export async function removeAccount(accountId: string) {

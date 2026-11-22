@@ -702,6 +702,7 @@ const it: Messages = {
     withPasswords_other: 'Vengono copiate {{count}} password IMAP.',
     signInAfter: 'Gli accessi Google e Microsoft non si possono copiare: dopo, accedi una volta a ciascuno di quegli account (un avviso lo chiede per ciascuno).',
     replaces: 'Sostituisce tutto ci\u00f2 che \u00e8 configurato su questo dispositivo.',
+    willRemove: 'Questi account non sono sull\u2019altro dispositivo e verranno rimossi da questo (con i loro accessi e le password salvate): {{accounts}}.',
     apply: 'Configura questo dispositivo',
     applied: 'Configurazione copiata. Accedi a ogni account dove un avviso lo chiede.',
     applyFailed: 'Non \u00e8 stato possibile applicare la configurazione: {{reason}}',
