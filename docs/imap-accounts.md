@@ -22,10 +22,31 @@ for free on your own Cloudflare account. Set it up first: [imap-bridge.md](imap-
      with **SSL/TLS** (or 587 with STARTTLS) and user name. Leave it unticked for a mailbox you
      only want to read.
 4. Type the password. If your provider offers **app passwords**, use one instead of your main
-   password.
+   password: some providers accept only those (see [App passwords](#app-passwords)).
 5. Choose whether to **remember the password on this device** (see [Passwords](#passwords)).
 6. For a PEC mailbox, tick **This is a PEC (certified email) mailbox** (see [PEC](#pec-mailboxes)).
 7. Click **Add**. Mail Vibes signs in once to check the user name and password.
+
+### App passwords
+
+Some providers refuse your usual password from any mail app but their own, and want an **app
+password** instead: a separate password that the provider generates for one app, and that you
+can delete at any time without changing your main password.
+
+| Provider | Where to make one | Incoming (IMAP) | Outgoing (SMTP) |
+| --- | --- | --- | --- |
+| Yahoo Mail | login.yahoo.com → **Account security** → **Generate app password** | `imap.mail.yahoo.com`, 993, SSL/TLS | `smtp.mail.yahoo.com`, 465, SSL/TLS |
+| AOL Mail | login.aol.com → **Account security** → **Generate app password** | `imap.aol.com`, 993, SSL/TLS | `smtp.aol.com`, 465, SSL/TLS |
+| iCloud Mail | account.apple.com → **Sign-In and Security** → **App-Specific Passwords** | `imap.mail.me.com`, 993, SSL/TLS | `smtp.mail.me.com`, 587, STARTTLS |
+
+- The user name is the full email address. For iCloud, it is the part before `@`.
+- If the provider doesn't offer app passwords, turn on **two-step verification** in the same
+  security page first: the option often appears only after that.
+- Copy the app password exactly as shown (spaces don't matter) and paste it as the password in
+  Mail Vibes.
+- Gmail and Microsoft accounts don't need this: add them with **Add Google account** or **Add
+  Microsoft 365 account** instead of IMAP, which also gives you their calendars, tasks and
+  contacts.
 
 ### Special folders
 
@@ -38,13 +59,15 @@ archive something.
 ## Passwords
 
 - By default the password is kept **only while Mail Vibes is open**. After you close or reload it,
-  the app asks again (as it does for Google sign-ins).
+  the app asks again.
 - **Remember the password on this device** stores it **encrypted** in this browser, with a key the
   browser never reveals: copying the browser's files to another computer doesn't expose it. But
   anyone using this browser on this device can open Mail Vibes and read your mail, so don't use it
   on shared devices.
-- Passwords are **never** in the settings, in the settings export file or in any log. When you
-  import your settings on another device, you type each password again there.
+- Passwords are **never** in the settings, in the settings export file or in any log.
+  **Settings → Copy to another device** carries them (encrypted, behind a one-time code); with a
+  settings file instead, you type each password again on the other device (see
+  [other-devices.md](other-devices.md)).
 
 ## What works, and how it differs from Gmail and Outlook
 
@@ -86,7 +109,7 @@ ordinary IMAP account, Mail Vibes notices PEC messages and offers to mark it as 
 | What happens | What to check |
 | --- | --- |
 | The app asks for the password every time | Tick **Remember the password on this device** (edit the account), or accept that it asks once per session. |
-| "The server refused the password" | The user name (not always the email address) and, if your provider has them, an app password. |
+| "The server refused the password" | The user name (not always the email address) and, if your provider has them, an [app password](#app-passwords): Yahoo, AOL and iCloud refuse the usual password. |
 | Bridge errors | See the troubleshooting table in [imap-bridge.md](imap-bridge.md). |
 | A folder shows old messages, or a message seems missing | Reload the list. If it persists, check in your provider's webmail: Mail Vibes shows what the server has. |
 | Mail sent to the account never arrives (also not in the webmail) | Nothing in Mail Vibes can stop mail from arriving. Ask whoever manages the domain's mail to check where its **MX records** point, and any spam filter or mail gateway in front of the mailbox. |
