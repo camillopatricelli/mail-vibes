@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 // @ts-expect-error plain JavaScript Worker without type declarations
 import * as w from './worker.js'
 
@@ -75,5 +75,65 @@ describe('bridge checks', () => {
       expect(w.isFinalReply(l), l).toBe(true)
       expect(w.isStartTlsOk(l), l).toBe(false)
     }
+  })
+})
+
+describe('Google token endpoint', () => {
+  const env = { ACCESS_KEY: 'a-long-enough-key-123', ALLOWED_ORIGINS: 'https://app.example.com', GOOGLE_CLIENT_SECRET: 'not-a-real-secret' }
+  const client_id = '123-abc.apps.googleusercontent.com'
+  const call = (body: unknown, key = env.ACCESS_KEY, e: Record<string, string> = env) =>
+    w.default.fetch(
+      new Request('https://bridge.example.com/google/token', {
+        method: 'POST',
+        headers: { Origin: 'https://app.example.com', Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      e,
+    )
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('builds the two kinds of request and refuses others', () => {
+    const a = w.googleTokenForm({ client_id, code: 'c1', code_verifier: 'v1', redirect_uri: 'https://app.example.com/cb.html' }, 's')
+    expect(Object.fromEntries(a)).toEqual({
+      client_id,
+      client_secret: 's',
+      grant_type: 'authorization_code',
+      code: 'c1',
+      redirect_uri: 'https://app.example.com/cb.html',
+      code_verifier: 'v1',
+    })
+    const r = w.googleTokenForm({ client_id, refresh_token: 'r1' }, 's')
+    expect(r.get('grant_type')).toBe('refresh_token')
+    expect(w.googleTokenForm({ client_id: 'evil.example.com', refresh_token: 'r1' }, 's')).toBe('Bad client_id')
+    expect(w.googleTokenForm({ client_id }, 's')).toBe('Bad request')
+  })
+
+  it('adds the secret and passes Google’s answer through', async () => {
+    const sent: { url: string; body: string }[] = []
+    vi.stubGlobal('fetch', async (url: string, init: { body: URLSearchParams }) => {
+      sent.push({ url, body: init.body.toString() })
+      return new Response('{"access_token":"t","expires_in":3599}', { status: 200 })
+    })
+    const res = await call({ client_id, refresh_token: 'r1' })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ access_token: 't', expires_in: 3599 })
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com')
+    expect(sent[0].url).toBe('https://oauth2.googleapis.com/token')
+    expect(sent[0].body).toContain('client_secret=not-a-real-secret')
+  })
+
+  it('needs the access key and the secret', async () => {
+    vi.stubGlobal('fetch', async () => new Response('{}'))
+    expect((await call({ client_id, refresh_token: 'r1' }, 'a-long-enough-key-999')).status).toBe(401)
+    expect((await call({ client_id, refresh_token: 'r1' }, env.ACCESS_KEY, { ...env, GOOGLE_CLIENT_SECRET: '' })).status).toBe(501)
+  })
+
+  it('says in /check whether Google sign-ins can last', async () => {
+    const check = (e: Record<string, string>) =>
+      w.default
+        .fetch(new Request('https://bridge.example.com/check', { headers: { Origin: 'https://app.example.com', Authorization: `Bearer ${env.ACCESS_KEY}` } }), e)
+        .then((r: Response) => r.text())
+    expect(await check(env)).toBe('ok 2 google')
+    expect(await check({ ...env, GOOGLE_CLIENT_SECRET: '' })).toBe('ok 2')
   })
 })

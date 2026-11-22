@@ -21,6 +21,9 @@ self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET' || !req.url.startsWith(SCOPE)) return
 
+  // Other pages (the Google sign-in return page) come straight from the network, uncached.
+  if (req.mode === 'navigate' && /\.html$/.test(new URL(req.url).pathname) && !/\/index\.html$/.test(new URL(req.url).pathname)) return
+
   if (req.mode === 'navigate') {
     // The page itself: always the latest version when online, the cached one when offline.
     event.respondWith(

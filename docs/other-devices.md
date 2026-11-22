@@ -20,9 +20,11 @@ Microsoft or your mail server.
 - The IMAP bridge (address and access key), IMAP account settings and mail rules
 - **IMAP passwords** that the first device knows (entered in this session or remembered). Each
   keeps its "remember on this device" choice.
+- **Long-lasting Google sign-ins**, if your bridge makes them
+  ([Long-lasting Google sign-ins](imap-bridge.md#long-lasting-google-sign-ins-optional)).
 
-It can't copy **Google and Microsoft sign-ins**: they belong to one device, by design. On the new
-device you sign in once to each of those accounts.
+It can't copy **Microsoft sign-ins**, or Google sign-ins that last one hour: they belong to one
+device. On the new device you sign in once to each of those accounts.
 
 ### How it's protected
 
@@ -41,8 +43,8 @@ device's screen), and don't share either with anyone.
 3. On the new device, open the link. Mail Vibes opens and asks for the code: type it.
 4. Check the list of accounts and click **Set up this device**. This **replaces** anything already
    set up on the new device.
-5. A **Sign in again** banner appears for each Google and Microsoft account. Click **Sign in** on
-   each one.
+5. A **Sign in again** banner appears for each Microsoft account (and each Google account whose
+   sign-in didn't come along). Click **Sign in** on each one.
 6. **Settings → Turn on notifications**, if you want them on this device too.
 
 ### iPhone and iPad
@@ -89,12 +91,14 @@ address and key in the settings file**).
   calendar, a rule for an IMAP account) stays on that device. To copy it, use Copy to another
   device again.
 - **Sign-ins are per device.** Signing out or removing an account on one device doesn't affect
-  the others. To cut off a lost device, revoke access from the account itself: Google Account →
+  the others (a copied Google sign-in included). To cut off a lost device, revoke access from the account itself: Google Account →
   *Security* → *Your connections to third-party apps*; Microsoft: *My Sign-ins* → sign out
   everywhere, or ask your administrator. For IMAP accounts, change the password.
 - **Google sign-ins last one hour** in a browser-only app. When one expires, Mail Vibes shows
   *Sign in again*; one click usually renews it. While the app's Google project is in
-  *Testing* mode, Google also asks you to approve the app again once a week.
+  *Testing* mode, Google also asks you to approve the app again once a week. With a bridge that
+  makes [long-lasting sign-ins](imap-bridge.md#long-lasting-google-sign-ins-optional), the app
+  renews them by itself.
 - **Notifications** appear only while Mail Vibes is open on that device (in the background is
   fine). They are turned on separately on each device.
 - **IMAP rules** run on every device where Mail Vibes is open, on mail that arrives while it is

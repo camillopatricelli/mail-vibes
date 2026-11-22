@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Mail Vibes</title>
+    <style>
+      body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 48px 16px; text-align: center; background: #fff; color: #1d1b20; }
+      @media (prefers-color-scheme: dark) { body { background: #141218; color: #e6e0e9; } a { color: #d0bcff; } }
+    </style>
+    <!-- Where Google returns after a long-lasting sign-in (src/auth/google.ts). It hands Google's
+         answer to the app through this browser's storage and closes, or goes back to the app. -->
+    <script src="google-signin.js" defer></script>
+  </head>
+  <body>
+    <p id="done" hidden>Signed in. You can close this window and go back to Mail Vibes.<br /><a href="./">Open Mail Vibes</a></p>
+  </body>
+</html>

@@ -12,6 +12,7 @@ import { create } from 'zustand'
  *   the app; it protects against copying, not against access to the device.
  *
  * Keys are `<accountId>` for the incoming server and `<accountId>#smtp` for a separate outgoing one.
+ * The same store keeps long-lasting Google sign-ins (refresh tokens) as `<accountId>#google`.
  */
 
 const memory = new Map<string, string>()
@@ -113,6 +114,8 @@ export async function forgetPassword(key: string) {
 }
 
 export const smtpKey = (accountId: string) => `${accountId}#smtp`
+/** A Google account's long-lasting sign-in (refresh token), made through the bridge */
+export const googleKey = (accountId: string) => `${accountId}#google`
 
 // ---------- "Sign in" prompt ----------
 

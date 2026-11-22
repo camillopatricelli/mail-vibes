@@ -5,7 +5,8 @@ import i18n from '../../i18n'
 import { useSettings } from '../../settings/store'
 import { Button } from '../../ui/components'
 import { Dialog, Spinner } from '../../ui/overlay'
-import { BRIDGE_VERSION, BridgeError, checkBridge, normalizeBridgeUrl, type BridgeConfig } from './bridge'
+import { googleConfigured, preloadGoogle } from '../../auth/google'
+import { BRIDGE_VERSION, BridgeError, bridgeFeatures, normalizeBridgeUrl, type BridgeConfig } from './bridge'
 import { MailServerError } from './client'
 import { emptyServer, filled, ServerFields, toServer } from './ServerFields'
 import { hasManageSieve, IMAP_FEATURES, testImap, testSmtp, type ImapTestReport, type SmtpTestReport } from './connectionTest'
@@ -63,8 +64,10 @@ export function BridgeSettings({ Field }: { Field: FieldComp }) {
     if (!b) return
     setStatus({ tone: 'busy', text: t('imap.checking') })
     try {
-      const version = await checkBridge(b)
-      setStatus(version >= BRIDGE_VERSION ? { tone: 'ok', text: t('imap.bridgeOk') } : { tone: 'error', text: t('imap.bridgeOld') })
+      const { version, google } = await bridgeFeatures(b)
+      const googleNote = googleConfigured() ? ` ${google ? t('imap.bridgeGoogle') : t('imap.bridgeNoGoogle')}` : ''
+      setStatus(version >= BRIDGE_VERSION ? { tone: 'ok', text: t('imap.bridgeOk') + googleNote } : { tone: 'error', text: t('imap.bridgeOld') })
+      preloadGoogle(true)
     } catch (e) {
       setStatus({ tone: 'error', text: connectionErrorText(e) })
     }

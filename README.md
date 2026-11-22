@@ -73,7 +73,9 @@ ends inside the bridge, which is why it should be your own.
   it is stored encrypted with a key the browser never reveals. Passwords are never in the
   settings or the settings export file.
 - Google sign-ins are kept in memory only, so Google asks you to sign in again after the page is
-  reloaded.
+  reloaded, and every hour. If your bridge holds the Google client secret, it makes long-lasting
+  sign-ins instead: those are stored on the device, encrypted like remembered IMAP passwords, and
+  renewed without clicks ([docs/imap-bridge.md](docs/imap-bridge.md#long-lasting-google-sign-ins-optional)).
 - The app writes to your own accounts only what you ask for. It also uses a few
   `Mail Vibes/…` labels for snooze and send later in Gmail (folders under `Mail Vibes` in IMAP
   mailboxes), and a `Mail Vibes:` line in the notes of Google tasks that have a start date, a
@@ -133,8 +135,8 @@ To build Microsoft 365 organisations into your copy, set `VITE_MS_TENANTS` (see
 
 ## Limitations
 
-- Google sign-ins are not stored, so after the page is reloaded the app asks you to sign in to
-  each Google account again.
+- Google sign-ins last one hour and end when the page is reloaded, unless a bridge with the
+  Google client secret makes them long-lasting.
 - Notifications only arrive while the app is open in a tab or as an installed app.
 - Microsoft 365 needs an app registration in each organisation, and its administrator may need to
   approve it.

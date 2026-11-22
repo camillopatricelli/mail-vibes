@@ -1,6 +1,6 @@
 import { AuthRequiredError } from '../auth/errors'
 import i18n from '../i18n'
-import { getGoogleToken, markGoogleTokenInvalid } from '../auth/google'
+import { getGoogleToken, hasLongSignIn, markGoogleTokenInvalid } from '../auth/google'
 import { useStatus } from '../status/store'
 import { ApiError, NetworkError, type GraphRequest } from './graph'
 
@@ -42,7 +42,7 @@ async function request<T>(accountId: string, url: string, req: GraphRequest): Pr
   const status = useStatus.getState()
   try {
     for (let attempt = 0; ; attempt++) {
-      const token = getGoogleToken(accountId)
+      const token = await getGoogleToken(accountId)
       let res: Response
       try {
         const isJson = req.body !== undefined && !(req.body instanceof Blob) && typeof req.body !== 'string'
@@ -62,6 +62,8 @@ async function request<T>(accountId: string, url: string, req: GraphRequest): Pr
       }
       if (res.status === 401) {
         markGoogleTokenInvalid(accountId)
+        // A long-lasting sign-in gets a fresh token on the next attempt.
+        if (attempt === 0 && hasLongSignIn(accountId)) continue
         throw new AuthRequiredError(i18n.t('accounts.googleSignIn'))
       }
       if ((res.status === 429 || res.status >= 500) && attempt < 4) {

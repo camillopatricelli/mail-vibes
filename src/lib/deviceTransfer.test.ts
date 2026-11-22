@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { newCode, normalizeCode, openTransfer, passwordKeys, payloadFromLink, sealTransfer, TRANSFER_TTL, type Transfer } from './deviceTransfer'
+import { googleSignInKeys, isGoogleSignIn, newCode, normalizeCode, openTransfer, passwordKeys, payloadFromLink, sealTransfer, TRANSFER_TTL, type Transfer } from './deviceTransfer'
 
 const sample: Transfer = {
   at: Date.now(),
@@ -45,5 +45,15 @@ describe('Copy to another device', () => {
         ],
       }),
     ).toEqual(['imap:a', 'imap:b', 'imap:b#smtp'])
+    expect(
+      googleSignInKeys({
+        accounts: [
+          { ...base, id: 'imap:a', imap: { incoming: server, pec: false } },
+          { ...base, id: 'google:1', provider: 'google' },
+        ],
+      }),
+    ).toEqual(['google:1#google'])
+    expect(isGoogleSignIn({ key: 'google:1#google', password: 'x', remember: true })).toBe(true)
+    expect(isGoogleSignIn({ key: 'imap:a', password: 'x', remember: true })).toBe(false)
   })
 })

@@ -93,9 +93,12 @@ The Audience page shows the **publishing status**. You have two choices:
 | User limit | 100 test users | **100 users in total, for the app's lifetime** |
 
 **Effect on Mail Vibes:** the app runs entirely in the browser, so Google only gives it
-short-lived access tokens (1 hour). It never receives a long-lived "refresh token". When a token
-expires, the app shows a **Reconnect** prompt for that account, and one click renews it if you
-are still signed in to Google in the browser.
+short-lived access tokens (1 hour). When a token expires, the app shows a **Sign in** prompt for
+that account, and one click renews it if you are still signed in to Google in the browser.
+
+If you also run an IMAP bridge, it can keep a long-lasting sign-in for you instead, renewed
+without clicks: see [Long-lasting Google sign-ins](imap-bridge.md#long-lasting-google-sign-ins-optional).
+That needs **In production**: in Testing, Google ends long-lasting sign-ins after 7 days.
 
 In Testing mode you also see the consent screen again once a week. Removing the warning and the
 100-user cap requires Google's **verification** of the app. That means a written justification
@@ -114,12 +117,15 @@ assessment. It's only worth doing if many people will use the app.
 - **Authorised redirect URIs:**
   - `http://localhost:5173`
   - `<app-url>`
+  - only for long-lasting sign-ins through the bridge: `http://localhost:5173/google-signin.html`
+    and `<app-url>google-signin.html`
 
 Click **Create**. Copy the **Client ID**, which looks like `1234…apps.googleusercontent.com`.
 
 - The client ID is not a secret: every user's browser sees it.
-- Google also shows a **client secret**. Mail Vibes doesn't use it. Don't put it in the app or
-  share it.
+- Google also shows a **client secret**. The app never uses it. Only an IMAP bridge can, for
+  long-lasting sign-ins, and it then goes in the bridge's Cloudflare settings. Never put it in the
+  app, a file or a repository, and don't share it.
 
 ## 6. Give the client ID to the app
 

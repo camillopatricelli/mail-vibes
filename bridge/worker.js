@@ -13,8 +13,11 @@
  * - unencrypted connections: TLS from the start, or STARTTLS before more than a few bytes are sent.
  *
  * Settings (Cloudflare dashboard > Worker > Settings > Variables and secrets):
- *   ACCESS_KEY       secret, required: a long random string; enter the same in Mail Vibes
- *   ALLOWED_ORIGINS  comma-separated list of the addresses Mail Vibes is opened from
+ *   ACCESS_KEY            secret, required: a long random string; enter the same in Mail Vibes
+ *   ALLOWED_ORIGINS       comma-separated list of the addresses Mail Vibes is opened from
+ *   GOOGLE_CLIENT_SECRET  secret, optional: the client secret of the Google OAuth client the app
+ *                         uses. With it, Google sign-ins last until revoked instead of one hour
+ *                         (see /google/token). Never put it in the app, a file or the repository.
  *
  * Honest limit: TLS to the mail server ends in this Worker, so your password and mail pass through
  * its memory unencrypted (never stored). Deploy your own bridge; don't use one run by someone else.
@@ -27,11 +30,15 @@
  *        bridge -> app: {"op":"open"} | {"op":"tls"} | {"op":"error","message":"…"}
  *        app -> bridge: {"op":"starttls"}, sent just before the STARTTLS command (see pump)
  *   GET /autoconfig?domain=…                   looks up published mail settings for a domain (JSON)
+ *   POST /google/token                         adds GOOGLE_CLIENT_SECRET to a Google token request:
+ *        {client_id, code, code_verifier, redirect_uri} (after sign-in) or {client_id, refresh_token}
+ *        (renewal), and answers Google's JSON. Stores nothing: the long-lasting token is kept by
+ *        the app on the device.
  */
 import { connect } from 'cloudflare:sockets'
 
 /** Raised when the app needs a newer bridge (it tells the user to update). Only functions may be exported: Workers treat exports as entry points. */
-const VERSION = 1
+const VERSION = 2
 
 const MAIL_PORTS = [993, 143, 465, 587, 4190]
 /** Ports that start in plain text and must switch to TLS with STARTTLS */
@@ -49,11 +56,20 @@ export default {
     if (url.pathname === '/') return new Response('ok', { headers: { ...cors, 'Content-Type': 'text/plain' } })
     if (!cors['Access-Control-Allow-Origin']) return text(403, 'Origin not allowed')
     if (request.method === 'OPTIONS')
-      return new Response(null, { status: 204, headers: { ...cors, 'Access-Control-Allow-Headers': 'Authorization' } })
+      return new Response(null, {
+        status: 204,
+        headers: { ...cors, 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, POST' },
+      })
 
     if (url.pathname === '/connect') return relay(request, env, url)
     if (url.pathname === '/check')
-      return keyMatches(bearer(request), env.ACCESS_KEY) ? text(200, `ok ${VERSION}`, cors) : text(401, 'Wrong access key', cors)
+      return keyMatches(bearer(request), env.ACCESS_KEY)
+        ? text(200, `ok ${VERSION}${env.GOOGLE_CLIENT_SECRET ? ' google' : ''}`, cors)
+        : text(401, 'Wrong access key', cors)
+    if (url.pathname === '/google/token') {
+      if (!keyMatches(bearer(request), env.ACCESS_KEY)) return text(401, 'Wrong access key', cors)
+      return googleToken(request, env, cors)
+    }
     if (url.pathname === '/autoconfig') {
       if (!keyMatches(bearer(request), env.ACCESS_KEY)) return text(401, 'Wrong access key', cors)
       const domain = (url.searchParams.get('domain') ?? '').toLowerCase()
@@ -62,6 +78,44 @@ export default {
     }
     return text(404, 'Not found', cors)
   },
+}
+
+const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
+
+/** The body of Google's token request, or an error message. Exported for the tests. */
+export function googleTokenForm(body, secret) {
+  if (!body || typeof body !== 'object') return 'Bad request'
+  const { client_id, code, code_verifier, redirect_uri, refresh_token } = body
+  if (typeof client_id !== 'string' || !/^[\w.-]+\.apps\.googleusercontent\.com$/.test(client_id)) return 'Bad client_id'
+  const form = new URLSearchParams({ client_id, client_secret: secret })
+  if (typeof refresh_token === 'string' && refresh_token) {
+    form.set('grant_type', 'refresh_token')
+    form.set('refresh_token', refresh_token)
+  } else if (typeof code === 'string' && code && typeof redirect_uri === 'string' && /^https?:\/\//.test(redirect_uri)) {
+    form.set('grant_type', 'authorization_code')
+    form.set('code', code)
+    form.set('redirect_uri', redirect_uri)
+    if (typeof code_verifier === 'string') form.set('code_verifier', code_verifier)
+  } else return 'Bad request'
+  return form
+}
+
+async function googleToken(request, env, cors, send = fetch) {
+  if (request.method !== 'POST') return text(405, 'POST expected', cors)
+  if (!env.GOOGLE_CLIENT_SECRET) return text(501, 'GOOGLE_CLIENT_SECRET is not set', cors)
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return text(400, 'Bad request', cors)
+  }
+  const form = googleTokenForm(body, env.GOOGLE_CLIENT_SECRET)
+  if (typeof form === 'string') return text(400, form, cors)
+  const r = await send(GOOGLE_TOKEN_URL, { method: 'POST', body: form })
+  return new Response(await r.text(), {
+    status: r.status,
+    headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+  })
 }
 
 const text = (status, body, headers = {}) => new Response(body, { status, headers: { ...headers, 'Content-Type': 'text/plain' } })

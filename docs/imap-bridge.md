@@ -6,8 +6,9 @@ and browsers can't open those connections. The **bridge** solves this: a very sm
 you run for free on your own Cloudflare account. Mail Vibes talks to the bridge, and the bridge
 talks to your mail server.
 
-You only need the bridge if you want to add an IMAP mailbox. Google and Microsoft 365 accounts
-never go through it.
+You only need the bridge if you want to add an IMAP mailbox. Google and Microsoft 365 mail
+never goes through it. Optionally, the bridge can also keep your Google sign-ins going, so Google
+stops asking you to sign in every hour (see [Long-lasting Google sign-ins](#long-lasting-google-sign-ins-optional)).
 
 ## What the bridge does, and doesn't do
 
@@ -103,6 +104,54 @@ npx wrangler deploy
 
 `ALLOWED_ORIGINS` is set in [`bridge/wrangler.toml`](../bridge/wrangler.toml); edit it if you host
 Mail Vibes yourself. Wrangler prints the bridge's address when it's done.
+
+## Long-lasting Google sign-ins (optional)
+
+Without a server, Google signs Mail Vibes in for **one hour** at a time, and then the app has to
+ask you again. On a phone that means mail checks and notifications stop until you sign in.
+
+Google gives long-lasting sign-ins only to apps that can keep a private **client secret**. The
+bridge can keep it: when you sign in, it swaps Google's one-time answer for a long-lasting sign-in,
+and every hour it gets a fresh pass with it. The long-lasting sign-in is saved **on your device**
+(encrypted, like a remembered IMAP password), not in the bridge, which still stores nothing.
+
+This works only with the **client secret of the Google OAuth client that the app uses**. So it is
+for whoever set up that client: if you host your own copy of Mail Vibes
+([google-setup.md](google-setup.md)), that's you.
+
+1. **Google Cloud console** → **APIs & Services → Credentials** → open your OAuth client (type
+   *Web application*).
+2. Under **Authorised redirect URIs**, add the sign-in return page:
+   `<app-url>google-signin.html` (for example `https://yourname.github.io/mail-vibes/google-signin.html`),
+   and `http://localhost:5173/google-signin.html` for development. Click **Save**.
+3. On the same page, under **Client secrets**, click **Add secret** and copy the new secret
+   (Google shows it only once).
+4. **Cloudflare** → your bridge Worker → **Settings → Variables and secrets** → **Add**:
+   type **Secret**, name `GOOGLE_CLIENT_SECRET`, value: the secret. Click **Deploy**.
+   With Wrangler: `npx wrangler secret put GOOGLE_CLIENT_SECRET`.
+5. Update the bridge to the latest `worker.js` (see [Updating the bridge](#updating-the-bridge)).
+6. **Google Cloud console** → **Google Auth Platform → Audience**: if the publishing status is
+   **Testing**, click **Publish app**. In Testing, Google ends long-lasting sign-ins after
+   7 days. See [google-setup.md](google-setup.md#4-testing-or-in-production) for what this means.
+7. In Mail Vibes: **Settings → IMAP bridge → Check**. It should say that Google sign-ins made from
+   now on stay signed in.
+8. On each device, sign in to each Google account once more (the next **Sign in** banner, or
+   **Settings → Add Google account**). Google shows its consent screen: allow it. From then on
+   the app renews the sign-in by itself, also in the background.
+
+**Copy to another device** carries these sign-ins too, so a device set up that way doesn't need
+to sign in to Google.
+
+Good to know:
+
+- The secret never goes into the app, a settings file or a repository: only into the bridge's
+  Cloudflare settings. If you think it leaked, delete it in Google Cloud and add a new one.
+- The sign-in requests pass through the bridge's memory (never stored), like IMAP passwords do.
+- A long-lasting sign-in ends when you remove the app's access in your Google Account, change
+  your Google password, or (in Testing mode) after 7 days. Mail Vibes then shows **Sign in** again.
+- Removing a Google account from Mail Vibes forgets the sign-in on that device only. To cut off
+  every device, remove the app's access in your Google Account (*Security → Your connections to
+  third-party apps & services*).
 
 ## Updating the bridge
 

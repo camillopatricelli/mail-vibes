@@ -60,8 +60,15 @@ function b64url(s: string) {
 /** The bridge version this app needs (VERSION in bridge/worker.js). */
 export const BRIDGE_VERSION = 1
 
-/** Checks the bridge address, the page's origin and the access key; answers the bridge's version. */
-export async function checkBridge(cfg: BridgeConfig): Promise<number> {
+/** What the bridge answers to /check: its version, and whether it can make Google sign-ins last. */
+export interface BridgeFeatures {
+  version: number
+  /** GOOGLE_CLIENT_SECRET is set (POST /google/token works) */
+  google: boolean
+}
+
+/** Checks the bridge address, the page's origin and the access key; answers what the bridge offers. */
+export async function bridgeFeatures(cfg: BridgeConfig): Promise<BridgeFeatures> {
   const n = normalizeBridgeUrl(cfg.url)
   if ('error' in n) throw new BridgeError('unreachable', n.error)
   let r: Response
@@ -73,7 +80,19 @@ export async function checkBridge(cfg: BridgeConfig): Promise<number> {
   }
   if (r.status === 401) throw new BridgeError('key', 'key')
   if (!r.ok) throw new BridgeError('refused', await r.text())
-  return Number(/^ok (\d+)/.exec(await r.text())?.[1] ?? 0)
+  const m = /^ok (\d+)(.*)$/.exec(await r.text())
+  return { version: Number(m?.[1] ?? 0), google: /\bgoogle\b/.test(m?.[2] ?? '') }
+}
+
+/** Checks the bridge address, the page's origin and the access key; answers the bridge's version. */
+export async function checkBridge(cfg: BridgeConfig): Promise<number> {
+  return (await bridgeFeatures(cfg)).version
+}
+
+/** The bridge's https:// base address, or undefined if it can't be used here. */
+export function bridgeBase(cfg: BridgeConfig) {
+  const n = normalizeBridgeUrl(cfg.url)
+  return 'url' in n ? n.url : undefined
 }
 
 export interface Connection {

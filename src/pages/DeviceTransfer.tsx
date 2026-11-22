@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   collectTransfer,
+  isGoogleSignIn,
   newCode,
   openTransfer,
   payloadFromLink,
@@ -183,6 +184,9 @@ export function ReceiveTransfer({ payload }: { payload: string }) {
     }
   }
 
+  const googleCount = opened?.passwords.filter(isGoogleSignIn).length ?? 0
+  const imapCount = (opened?.passwords.length ?? 0) - googleCount
+
   let preview: ReturnType<typeof transferSettings> | undefined
   try {
     preview = opened && transferSettings(opened)
@@ -232,7 +236,8 @@ export function ReceiveTransfer({ payload }: { payload: string }) {
             <p className="body-small muted">
               {[
                 preview.bridge && t('transfer.withBridge'),
-                opened.passwords.length > 0 && t('transfer.withPasswords', { count: opened.passwords.length }),
+                imapCount > 0 && t('transfer.withPasswords', { count: imapCount }),
+                googleCount > 0 && t('transfer.withGoogle', { count: googleCount }),
               ]
                 .filter(Boolean)
                 .join(' ')}
