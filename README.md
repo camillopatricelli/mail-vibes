@@ -2,10 +2,11 @@
 
 A free, open-source web app that brings several Google accounts and Microsoft 365 organisations
 together in one place: **mail, calendar, tasks and contacts**, with a Material 3 look, in English
-and Italian.
+and Italian. It can also show other mailboxes over IMAP, including Italian **PEC** (certified
+email).
 
 It runs entirely in your browser. There is no server and no Mail Vibes account: your browser
-talks straight to Google and Microsoft.
+talks straight to Google and Microsoft (and, for IMAP mailboxes, to your own small bridge).
 
 **Try it:** <https://camillopatricelli.github.io/mail-vibes/>
 
@@ -23,13 +24,19 @@ policies. If your organisation uses it, its administrators decide whether to all
 
 - **Accounts:** any number of Google accounts and Microsoft 365 work or school accounts, each
   with its own colour. Views can show every account together or one at a time.
+- **IMAP and PEC mailboxes** (mail only): a hosting provider's mailbox, a self-hosted server or a
+  PEC mailbox, with folders, search, tags, snooze, send later, drafts and rules. PEC messages are
+  shown as the original message with their certification details, receipts are grouped with the
+  message they are about, and they can be forwarded as normal email from another account. See
+  [docs/imap-accounts.md](docs/imap-accounts.md).
 - **Today:** the day's events, tasks that are due or overdue, and unread mail at a glance.
 - **Mail:** inbox, folders and Gmail labels; threads; reply, forward, drafts and attachments
   (PDFs and images open in the app); snooze and send later; tags (Gmail labels and Outlook
   categories); recipient suggestions from your contacts.
 - **Mail rules:** mark as read, archive, move or delete new messages by sender or by words they
   contain. They are saved as Gmail filters and Outlook rules, so Google and Microsoft run them
-  even when Mail Vibes is closed.
+  even when Mail Vibes is closed. IMAP accounts have no server rules: Mail Vibes runs theirs while
+  it is open.
 - **Calendar:** day, week, month and agenda views; create and edit events with guests, a
   location (with optional Google Maps suggestions), Google Meet or Teams links, repeat rules
   and several reminders, including days ahead.
@@ -48,16 +55,28 @@ There is no backend. The app is a static single-page app hosted on GitHub Pages.
 signs in with Google and Microsoft and uses their own APIs (Gmail, Google Calendar, Google Tasks,
 People and Microsoft Graph).
 
+IMAP mailboxes are the exception, because browsers can't speak IMAP or SMTP: they go through a
+**bridge** you deploy yourself, for free, on your own Cloudflare account
+([docs/imap-bridge.md](docs/imap-bridge.md)). It only relays encrypted connections between your
+browser and your mail server, stores and logs nothing, and accepts only your access key. Reading,
+writing and understanding mail still happen in your browser. The encryption to the mail server
+ends inside the bridge, which is why it should be your own.
+
 - Mail, events, tasks and contacts are held **in memory only** and are never saved on the device.
-- Saved in the browser: your settings (account colours, preferences, default accounts), the
-  Microsoft sign-in cache, folded sidebar groups and the list of reminders already shown.
+- Saved in the browser: your settings (account colours, preferences, default accounts, IMAP
+  server names and rules), the Microsoft sign-in cache, folded sidebar groups and the list of
+  reminders already shown.
+- IMAP passwords are kept in memory only, unless you choose to remember one on the device: then
+  it is stored encrypted with a key the browser never reveals. Passwords are never in the
+  settings or the settings export file.
 - Google sign-ins are kept in memory only, so Google asks you to sign in again after the page is
   reloaded.
 - The app writes to your own accounts only what you ask for. It also uses a few
-  `Mail Vibes/…` labels for snooze and send later in Gmail, and a `Mail Vibes:` line in the notes
-  of Google tasks that have a start date, a reminder or a repeat rule.
-- The page has a strict Content Security Policy: it can send requests only to Google and
-  Microsoft. Pictures from the web inside emails stay blocked until you choose to show them.
+  `Mail Vibes/…` labels for snooze and send later in Gmail (folders under `Mail Vibes` in IMAP
+  mailboxes), and a `Mail Vibes:` line in the notes of Google tasks that have a start date, a
+  reminder or a repeat rule.
+- The page has a strict Content Security Policy: it can send requests only to Google, Microsoft
+  and Cloudflare Workers (where your bridge runs). Pictures from the web inside emails stay blocked until you choose to show them.
 
 The **Privacy** page in the app has the full details.
 
@@ -72,6 +91,9 @@ To use the hosted app you need sign-in apps ("app registrations") that allow it:
   app ships with none built in. See [docs/microsoft-setup.md](docs/microsoft-setup.md).
 - **Google Maps place suggestions** are optional and use your own API key. See
   [docs/google-maps-key.md](docs/google-maps-key.md).
+- **IMAP and PEC mailboxes** need your own bridge
+  ([docs/imap-bridge.md](docs/imap-bridge.md)), then Settings → Add IMAP account
+  ([docs/imap-accounts.md](docs/imap-accounts.md)).
 - **Other devices:** see [docs/other-devices.md](docs/other-devices.md).
 
 ### Sharing a Microsoft 365 organisation
@@ -113,9 +135,10 @@ To build Microsoft 365 organisations into your copy, set `VITE_MS_TENANTS` (see
 - Notifications only arrive while the app is open in a tab or as an installed app.
 - Microsoft 365 needs an app registration in each organisation, and its administrator may need to
   approve it.
-- Only Google and Microsoft 365 accounts for now. Mailboxes that offer only IMAP/SMTP (for example
-  PEC) need a small bridge you deploy yourself: see [docs/imap-bridge.md](docs/imap-bridge.md).
-  Support for these accounts is being built.
+- IMAP mailboxes need a bridge you deploy yourself, have mail only (no calendar, tasks or
+  contacts), and their rules and scheduled messages run only while Mail Vibes is open. On PEC
+  mailboxes, search looks only at the subject and sender. See
+  [docs/imap-accounts.md](docs/imap-accounts.md).
 - Outlook events allow one reminder; Google Calendar allows up to five.
 - Google Tasks has no start date, reminder or repeat fields: Mail Vibes keeps them in the task's
   notes and creates the next task itself when a repeating one is done.

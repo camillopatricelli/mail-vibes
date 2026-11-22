@@ -1,5 +1,5 @@
 import i18n from '../../i18n'
-import { specialFolders, useSettings, type SpecialFolder } from '../../settings/store'
+import { accountLabel, specialFolders, useSettings, type SpecialFolder } from '../../settings/store'
 import { useStatus } from '../../status/store'
 import { escapeHtml, sanitizeForEditor } from '../html'
 import { buildMime, rfc5322Date } from '../mime'
@@ -12,6 +12,7 @@ import { originalSender, originalSubject, pecHeaders, pecView } from './pec'
 import type { CommandResult, Part } from './client'
 import { asList, asText, encodeMailboxName, fetchAttributes, type ImapResponse } from './parse'
 import { isAppFolder, keywordToTag, tagToKeyword, timedFolderTime, timedPath, type Namespace, type TimedKind } from './keywords'
+import { formatKb, nearlyFull, storageUsage } from './quota'
 import { copiedUids, ruleCriteria, searchCriteria } from './search'
 import { getPassword, smtpKey } from './passwords'
 import { session, type Ctx, type Selected } from './session'
@@ -168,6 +169,7 @@ async function listFolder(ctx: Ctx, accountId: string, path: string, count: numb
   const idx = await datesOf(ctx, accountId, path, box)
   if (isInbox(path)) {
     await runRules(ctx, accountId, box, idx)
+    await checkQuota(ctx, accountId)
     await ctx.select(path)
   }
   const newest = [...idx.dates].sort((a, b) => b[1] - a[1] || b[0] - a[0]).slice(0, count).map(([uid]) => uid)
@@ -398,6 +400,27 @@ async function runRules(ctx: Ctx, accountId: string, box: Selected, idx: DateInd
     }
   }
   save()
+}
+
+// ---------- Mailbox storage ----------
+
+const quotaChecked = new Map<string, number>()
+
+/** Warns (a banner until dismissed) when the mailbox is nearly full; checked every few hours. */
+async function checkQuota(ctx: Ctx, accountId: string) {
+  if (!ctx.client.has('QUOTA') || Date.now() - (quotaChecked.get(accountId) ?? 0) < 6 * 3600_000) return
+  quotaChecked.set(accountId, Date.now())
+  const r = await ctx.client.run(['GETQUOTAROOT INBOX']).catch(() => undefined)
+  const u = r && storageUsage(r.untagged)
+  const status = useStatus.getState()
+  const id = `imap-quota-${accountId}`
+  if (!u || !nearlyFull(u)) return status.dismissBanner(id)
+  const a = ctx.account
+  const text = () => ({
+    title: i18n.t('imap.quotaTitle', { account: accountLabel(a), percent: Math.min(100, Math.floor((u.usedKb * 100) / u.limitKb)) }),
+    body: i18n.t(a.imap?.pec ? 'imap.quotaPec' : 'imap.quota', { used: formatKb(u.usedKb), limit: formatKb(u.limitKb) }),
+  })
+  status.showBanner({ id, tone: 'warning', accountId, ...text(), text, dismissible: true })
 }
 
 // ---------- Snoozed and scheduled mail: folders named after the time ----------

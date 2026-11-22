@@ -85,6 +85,10 @@ Open it in your browser: it should just show `ok`.
 then won't contain the access key. Turn it on if you want to move the bridge to another device
 with the file (and keep the file somewhere safe).
 
+Then add your mailbox: **Settings** → **Add IMAP account**. See
+[imap-accounts.md](imap-accounts.md) for the steps, PEC mailboxes, and what works differently
+from Gmail and Outlook.
+
 ## Alternative: deploy from the command line (Wrangler)
 
 If you're comfortable with a terminal and have [Node.js](https://nodejs.org) installed:

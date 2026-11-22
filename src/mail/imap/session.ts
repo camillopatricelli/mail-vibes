@@ -30,13 +30,6 @@ export interface Ctx {
   forgetFolders(): void
 }
 
-/** Thrown for features that IMAP accounts get in a later version. */
-export class NotYetError extends Error {
-  constructor() {
-    super(i18n.t('imap.notYet'))
-    this.name = 'NotYetError'
-  }
-}
 
 class Session {
   private client?: ImapClient
@@ -167,7 +160,7 @@ class Session {
       return err
     }
     if (!quiet && err instanceof AuthRequiredError) status.reportError(this.accountId, 'auth', err.message)
-    else if (!quiet && !(e instanceof MailServerError) && !(e instanceof NotYetError)) status.reportError(this.accountId, 'api', err.message)
+    else if (!quiet && !(e instanceof MailServerError)) status.reportError(this.accountId, 'api', err.message)
     return err
   }
 }

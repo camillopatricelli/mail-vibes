@@ -18,13 +18,13 @@ export function isMailCapable(accountId: string) {
 
 export const isImap = (accountId: string) => accountId.startsWith('imap:')
 
-/** Whether mail can be written from this account (IMAP sending comes in a later version). */
+/** Whether mail can be written from this account (IMAP: only with an outgoing server; PEC mailboxes are usually read-only here). */
 export function canSend(accountId: string) {
   if (isImap(accountId)) return !!useSettings.getState().accounts.find((a) => a.id === accountId)?.imap?.outgoing
   return accountId.startsWith('microsoft:') || accountId.startsWith('google:')
 }
 
-/** Server-side mail rules (Gmail filters, Outlook rules); IMAP rules come in a later version. */
+/** Mail rules: Gmail filters and Outlook rules on the server; IMAP rules are run by the app (see rules.ts). */
 export const hasRules = (accountId: string) => accountId.startsWith('microsoft:') || accountId.startsWith('google:') || isImap(accountId)
 
 /** Gmail cannot delete permanently with the permissions the app requests. */
