@@ -230,6 +230,8 @@
 .composer.is-minimized .composer__head { cursor: pointer; }
 .composer__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer__body { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: auto; padding: 0 16px; }
+/* Long content (e.g. a forwarded message) scrolls the whole body; nothing gets squeezed */
+.composer__body > * { flex-shrink: 0; }
 .composer__error { margin: 8px 0; }
 .composer__from { display: flex; align-items: center; gap: 12px; min-height: 40px; border-bottom: 1px solid var(--md-sys-color-outline-variant); }
 .select--plain { border: 0; padding: 0; height: 36px; flex: 1; background: transparent; }
@@ -247,7 +249,9 @@
 .cc-toggle { align-self: flex-end; margin: -32px 0 0; height: 32px; position: relative; z-index: 1; }
 .link-btn { border: 0; background: none; padding: 0 4px; color: var(--md-sys-color-primary); cursor: pointer; font: inherit; }
 .composer__subject { height: 40px; border: 0; border-bottom: 1px solid var(--md-sys-color-outline-variant); outline: 0; background: transparent; }
-.editor { flex: 1; min-height: 200px; padding: 12px 0; outline: 0; overflow-wrap: anywhere; }
+.editor { flex: 1; min-height: 200px; padding: 12px 0; outline: 0; overflow-wrap: anywhere; overflow-x: auto; }
+.editor img { max-width: 100%; height: auto; }
+.editor table { max-width: 100%; }
 .editor:empty::before { content: ''; }
 .editor-toolbar { display: flex; flex-wrap: wrap; gap: 0; border-top: 1px solid var(--md-sys-color-outline-variant); padding: 2px 0; }
 .format-btn { font-weight: 700; font-size: 15px; }
