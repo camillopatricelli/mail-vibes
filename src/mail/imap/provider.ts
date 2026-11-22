@@ -1,10 +1,13 @@
-import type { SpecialFolder } from '../../settings/store'
+import i18n from '../../i18n'
+import { specialFolders, type SpecialFolder } from '../../settings/store'
 import type { Attachment, FolderKind, ListTarget, MailFolder, MailMessage, MailProvider, MailSummary } from '../types'
 import { isDeleted, isDraftFlag, isFlagged, isSeen, parseSummary, SUMMARY_ITEMS, threadRoot, type FetchedSummary } from './envelope'
 import { isInbox, type ListedFolder } from './folders'
 import { folderId, folderPath, messageId, parseMessageId, parseThreadId, threadIdOf } from './ids'
 import { parseMessage, type ParsedMessage } from './message'
-import { asList, asText, fetchAttributes, type ImapResponse } from './parse'
+import type { CommandResult, Part } from './client'
+import { asList, asText, encodeMailboxName, fetchAttributes, type ImapResponse } from './parse'
+import { copiedUids, searchCriteria } from './search'
 import { NotYetError, session, type Ctx } from './session'
 
 /**
@@ -22,6 +25,8 @@ import { NotYetError, session, type Ctx } from './session'
 const threadFolders = new Map<string, Set<string>>()
 /** Messages listed for each thread (PEC accounts open threads from these, without searching) */
 const threadMessages = new Map<string, Set<string>>()
+/** Where moved messages came from (new id -> old folder), so "Undo" from Starred or a search puts them back */
+const movedFrom = new Map<string, string>()
 /** Whole messages already downloaded and parsed (a few, for attachments and re-opening) */
 const parsed = new Map<string, ParsedMessage>()
 const PARSED_MAX = 30
@@ -84,7 +89,7 @@ function summariesFrom(responses: ImapResponse[]) {
 
 /** The newest `count` messages of a folder (by sequence number: no search needed). */
 async function listFolder(ctx: Ctx, accountId: string, path: string, count: number) {
-  const box = await ctx.select(path)
+  const box = await ctx.select(path, true)
   if (!box.exists) return { messages: [], hasMore: false }
   const from = Math.max(1, box.exists - count + 1)
   const r = await ctx.client.run([`FETCH ${from}:${box.exists} ${SUMMARY_ITEMS}`], 120_000)
@@ -92,8 +97,8 @@ async function listFolder(ctx: Ctx, accountId: string, path: string, count: numb
 }
 
 /** UIDs found by a search in the open folder. */
-async function search(ctx: Ctx, criteria: string): Promise<number[]> {
-  const r = await ctx.client.run([`UID SEARCH ${criteria}`], 120_000)
+async function search(ctx: Ctx, criteria: string | Part[]): Promise<number[]> {
+  const r = await ctx.client.run(['UID SEARCH ', ...(typeof criteria === 'string' ? [criteria] : criteria)], 180_000)
   return r.untagged.filter((u) => u.type === 'SEARCH').flatMap((u) => u.values.map((v) => Number(asText(v)))).filter(Boolean)
 }
 
@@ -144,6 +149,60 @@ async function storeFlags(accountId: string, ids: string[], op: '+' | '-', flag:
   })
 }
 
+/** Removes messages of the open folder for good (marked \Deleted, then expunged). */
+async function expunge(ctx: Ctx, uidSet: string) {
+  await ctx.client.run([`UID STORE ${uidSet} +FLAGS.SILENT (\\Deleted)`])
+  // Without UIDPLUS, EXPUNGE also removes other messages marked deleted (the app hides those anyway).
+  await ctx.client.run([ctx.client.has('UIDPLUS') ? `UID EXPUNGE ${uidSet}` : 'EXPUNGE'], 120_000)
+}
+
+/** Search the Inbox, Sent, Archive and the user's folders (not Trash, Junk, Drafts); newest first. */
+async function searchMail(ctx: Ctx, accountId: string, target: { search: string; inbox?: boolean }, count: number) {
+  const criteria = searchCriteria(target.search, !!ctx.account.imap?.pec)
+  if (!criteria) return { messages: [], hasMore: false }
+  const { list, special } = await ctx.folders()
+  const skip = new Set([special.trash, special.spam, special.drafts])
+  const paths = target.inbox ? ['INBOX'] : ['INBOX', ...list.filter((f) => f.selectable && !isInbox(f.path) && !skip.has(f.path)).map((f) => f.path)]
+  const out: MailSummary[] = []
+  let hasMore = false
+  for (const path of paths) {
+    await ctx.select(path)
+    const uids = (await search(ctx, criteria)).sort((a, b) => a - b)
+    if (uids.length > count) hasMore = true
+    out.push(...(await fetchByUid(ctx, accountId, path, uids.slice(-count))))
+  }
+  out.sort((a, b) => b.date - a.date)
+  return { messages: out.slice(0, count), hasMore: hasMore || out.length > count }
+}
+
+/** The folder a move goes to. A missing Archive folder is created (Archive must always work). */
+async function destination(ctx: Ctx, dest: ListTarget, from: string): Promise<string> {
+  if (typeof dest === 'object' && 'folderId' in dest) return folderPath(dest.folderId)
+  if (dest === 'inbox') return 'INBOX'
+  if (typeof dest === 'string' && (specialFolders as string[]).includes(dest)) {
+    const kind = dest as SpecialFolder
+    const { special } = await ctx.folders()
+    if (special[kind]) return special[kind]!
+    if (kind === 'archive') return createArchive(ctx)
+    throw new Error(i18n.t('imap.noSpecialFolder', { folder: i18n.t(`imap.folder.${kind}`) }))
+  }
+  // Back from Starred or a search ("Undo"): where the message was before.
+  return from
+}
+
+async function createArchive(ctx: Ctx): Promise<string> {
+  const { list } = await ctx.folders()
+  const delim = list.find((f) => f.delimiter)?.delimiter ?? null
+  const others = list.filter((f) => !isInbox(f.path))
+  // Servers that keep every folder under "INBOX." want new ones there too.
+  const prefix = delim && others.length && others.every((f) => f.path.toUpperCase().startsWith(`INBOX${delim}`)) ? `INBOX${delim}` : ''
+  const path = prefix + encodeMailboxName(i18n.t('imap.folder.archive'))
+  await ctx.client.run(['CREATE ', { str: path }])
+  await ctx.client.run(['SUBSCRIBE ', { str: path }]).catch(() => undefined)
+  ctx.forgetFolders()
+  return (await ctx.folders()).special.archive ?? path
+}
+
 const notYet = async (): Promise<never> => {
   throw new NotYetError()
 }
@@ -171,7 +230,8 @@ export const imap: MailProvider = {
         return path ? listFolder(ctx, accountId, path, count) : { messages: [], hasMore: false }
       }
       if ('folderId' in target) return listFolder(ctx, accountId, folderPath(target.folderId), count)
-      // Search and tags come in a later version.
+      if ('search' in target) return searchMail(ctx, accountId, target, count)
+      // Tags come in a later version.
       return { messages: [], hasMore: false }
     })
   },
@@ -230,8 +290,46 @@ export const imap: MailProvider = {
   setRead: (accountId, ids, read) => storeFlags(accountId, ids, read ? '+' : '-', '\\Seen'),
   setFlagged: (accountId, ids, flagged) => storeFlags(accountId, ids, flagged ? '+' : '-', '\\Flagged'),
 
-  move: notYet,
-  deleteForever: notYet,
+  /** Answers the messages' new ids (a moved message gets a new UID in its new folder). */
+  async move(accountId, ids, dest) {
+    return session(accountId).run(async (ctx) => {
+      const newIds: string[] = []
+      for (const [path, group] of groupByFolder(ids)) {
+        const to = await destination(ctx, dest, movedFrom.get(group[0]) ?? 'INBOX')
+        if (to === path) {
+          newIds.push(...group)
+          continue
+        }
+        const refs = []
+        for (const id of group) refs.push(await selectFor(ctx, id))
+        const set = refs.map((r) => r.uid).join(',')
+        let r: CommandResult
+        if (ctx.client.has('MOVE')) r = await ctx.client.run([`UID MOVE ${set} `, { str: to }], 120_000)
+        else {
+          r = await ctx.client.run([`UID COPY ${set} `, { str: to }], 120_000)
+          await expunge(ctx, set)
+        }
+        const copied = copiedUids([...r.untagged, r.done])
+        for (const ref of refs) {
+          const uid = copied?.map.get(ref.uid)
+          const id = copied && uid ? messageId({ path: to, uidValidity: copied.uidValidity, uid }) : messageId(ref)
+          movedFrom.set(id, path)
+          newIds.push(id)
+        }
+      }
+      return newIds
+    })
+  },
+
+  async deleteForever(accountId, ids) {
+    await session(accountId).run(async (ctx) => {
+      for (const [, group] of groupByFolder(ids)) {
+        const uids = []
+        for (const id of group) uids.push((await selectFor(ctx, id)).uid)
+        await expunge(ctx, uids.join(','))
+      }
+    })
+  },
   snooze: notYet,
   unsnooze: notYet,
 

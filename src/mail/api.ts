@@ -27,5 +27,5 @@ export const hasRules = (accountId: string) => accountId.startsWith('microsoft:'
 
 /** Gmail cannot delete permanently with the permissions the app requests. */
 export function canDeleteForever(accountId: string) {
-  return accountId.startsWith('microsoft:')
+  return accountId.startsWith('microsoft:') || isImap(accountId)
 }

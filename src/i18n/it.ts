@@ -714,6 +714,7 @@ const it: Messages = {
     passwordNeeded: 'Inserisci la password per leggere questa casella.',
     passwordRejected: 'Il server ha rifiutato la password: {{reason}}',
     noBridge: 'Configura prima il ponte IMAP nelle Impostazioni.',
+    noSpecialFolder: 'Questa casella non ha una cartella {{folder}}. Sceglila nelle Impostazioni (Modifica l’account).',
     notYet: 'Non ancora disponibile per gli account IMAP: arriva in una prossima versione.',
     section: 'Ponte IMAP (facoltativo)',
     sectionHint:

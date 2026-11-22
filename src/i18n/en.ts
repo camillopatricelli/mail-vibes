@@ -711,6 +711,7 @@ const en = {
     passwordNeeded: 'Enter the password to read this mailbox.',
     passwordRejected: 'The server refused the password: {{reason}}',
     noBridge: 'Set up the IMAP bridge in Settings first.',
+    noSpecialFolder: 'This mailbox has no {{folder}} folder. Choose one in Settings (Edit the account).',
     notYet: 'Not available for IMAP accounts yet: it comes in a later version.',
     section: 'IMAP bridge (optional)',
     sectionHint:

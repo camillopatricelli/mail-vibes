@@ -20,10 +20,12 @@ export interface Selected {
 export interface Ctx {
   client: ImapClient
   account: AccountSettings
-  /** Opens a folder (SELECT); reuses it if already open */
-  select(path: string): Promise<Selected>
+  /** Opens a folder (SELECT); reuses it if already open, unless `fresh` (new message count) */
+  select(path: string, fresh?: boolean): Promise<Selected>
   /** The account's folders and special folders (cached for a minute) */
   folders(refresh?: boolean): Promise<{ list: ListedFolder[]; special: Partial<Record<SpecialFolder, string>> }>
+  /** After creating a folder */
+  forgetFolders(): void
 }
 
 /** Thrown for features that IMAP accounts get in a later version. */
@@ -90,8 +92,8 @@ class Session {
     return {
       client,
       account: this.account(),
-      select: async (path) => {
-        if (this.selected?.path === path) return this.selected
+      select: async (path, fresh = false) => {
+        if (!fresh && this.selected?.path === path) return this.selected
         const r = await client.run(['SELECT ', { str: path }])
         const perm = r.untagged.find((u) => u.code?.name === 'PERMANENTFLAGS')
         this.selected = {
@@ -108,6 +110,9 @@ class Session {
         const list = parseList(r.untagged)
         this.folderCache = { at: Date.now(), list, special: detectSpecial(list, this.account().imap?.folders) }
         return this.folderCache
+      },
+      forgetFolders: () => {
+        this.folderCache = undefined
       },
     }
   }
