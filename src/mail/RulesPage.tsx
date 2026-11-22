@@ -60,6 +60,7 @@ function AccountRules({ account, onEdit, onAdd }: { account: AccountSettings; on
   const folders = useFolders(q.data?.rules.length ? account.id : undefined)
   const [busy, setBusy] = useState(false)
   const google = account.provider === 'google'
+  const imap = account.provider === 'imap'
 
   const allow = async () => {
     setBusy(true)
@@ -90,6 +91,12 @@ function AccountRules({ account, onEdit, onAdd }: { account: AccountSettings; on
         {accountLabel(account)}
         <span className="body-small muted">{account.email}</span>
       </h2>
+      {imap && (
+        <p className="body-small muted">
+          {t('rules.imapNote')}
+          {account.imap?.pec && ` ${t('rules.imapPecWords')}`}
+        </p>
+      )}
       {q.isPending ? (
         <Spinner size={24} label={t('mail.loading')} />
       ) : q.error ? (

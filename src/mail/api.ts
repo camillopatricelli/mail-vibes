@@ -25,7 +25,7 @@ export function canSend(accountId: string) {
 }
 
 /** Server-side mail rules (Gmail filters, Outlook rules); IMAP rules come in a later version. */
-export const hasRules = (accountId: string) => accountId.startsWith('microsoft:') || accountId.startsWith('google:')
+export const hasRules = (accountId: string) => accountId.startsWith('microsoft:') || accountId.startsWith('google:') || isImap(accountId)
 
 /** Gmail cannot delete permanently with the permissions the app requests. */
 export function canDeleteForever(accountId: string) {

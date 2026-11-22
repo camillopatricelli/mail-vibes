@@ -2,8 +2,8 @@ import i18n from '../../i18n'
 import { specialFolders, useSettings, type SpecialFolder } from '../../settings/store'
 import { useStatus } from '../../status/store'
 import { escapeHtml, sanitizeForEditor } from '../html'
-import { buildMime } from '../mime'
-import type { Address, Attachment, DraftContent, FolderKind, ListTarget, MailFolder, MailMessage, MailProvider, MailSummary, PecDetails, ReplyKind } from '../types'
+import { buildMime, rfc5322Date } from '../mime'
+import type { Address, Attachment, DraftContent, FolderKind, ListTarget, MailFolder, MailMessage, MailProvider, MailSummary, MailTag, PecDetails, ReplyKind } from '../types'
 import { isDeleted, isDraftFlag, isFlagged, isSeen, parseInternalDate, parseSummary, SUMMARY_ITEMS, threadRoot, type FetchedSummary } from './envelope'
 import { isInbox, type ListedFolder } from './folders'
 import { folderId, folderPath, messageId, parseMessageId, parseThreadId, threadIdOf } from './ids'
@@ -11,10 +11,11 @@ import { parseMessage, type ParsedMessage } from './message'
 import { originalSender, originalSubject, pecHeaders, pecView } from './pec'
 import type { CommandResult, Part } from './client'
 import { asList, asText, encodeMailboxName, fetchAttributes, type ImapResponse } from './parse'
-import { copiedUids, searchCriteria } from './search'
+import { isAppFolder, keywordToTag, tagToKeyword, timedFolderTime, timedPath, type Namespace, type TimedKind } from './keywords'
+import { copiedUids, ruleCriteria, searchCriteria } from './search'
 import { getPassword, smtpKey } from './passwords'
-import { NotYetError, session, type Ctx } from './session'
-import { SmtpClient } from './smtp'
+import { session, type Ctx, type Selected } from './session'
+import { rewriteHeaders, SmtpClient } from './smtp'
 
 /**
  * Mail adapter for IMAP accounts (through the user's bridge, see bridge/worker.js).
@@ -58,6 +59,22 @@ function kindOfPath(path: string, special: Special): Exclude<FolderKind, 'starre
   return undefined
 }
 
+/** Keywords seen on each account's messages (IMAP can't list them all), for the tag list */
+const seenKeywords = new Map<string, Set<string>>()
+
+function tagsOf(accountId: string, flags: string[]) {
+  const tags: string[] = []
+  for (const f of flags) {
+    const tag = keywordToTag(f)
+    if (!tag) continue
+    tags.push(tag)
+    const set = seenKeywords.get(accountId) ?? new Set<string>()
+    set.add(f)
+    seenKeywords.set(accountId, set)
+  }
+  return tags
+}
+
 function toSummary(accountId: string, path: string, uidValidity: number, s: FetchedSummary): MailSummary {
   const id = messageId({ path, uidValidity, uid: s.uid })
   const threadId = threadIdOf(threadRoot(s), id)
@@ -85,7 +102,8 @@ function toSummary(accountId: string, path: string, uidValidity: number, s: Fetc
     isFlagged: isFlagged(s.flags),
     hasAttachments: s.hasAttachments,
     isDraft: isDraftFlag(s.flags),
-    tags: [],
+    tags: tagsOf(accountId, s.flags),
+    ...timedFields(accountId, path),
   }
 }
 
@@ -146,6 +164,10 @@ async function listFolder(ctx: Ctx, accountId: string, path: string, count: numb
   const box = await ctx.select(path, true)
   if (!box.exists) return { messages: [], hasMore: false }
   const idx = await datesOf(ctx, accountId, path, box)
+  if (isInbox(path)) {
+    await runRules(ctx, accountId, box, idx)
+    await ctx.select(path)
+  }
   const newest = [...idx.dates].sort((a, b) => b[1] - a[1] || b[0] - a[0]).slice(0, count).map(([uid]) => uid)
   if (!newest.length) return { messages: [], hasMore: false }
   const r = await ctx.client.run([`UID FETCH ${newest.join(',')} ${SUMMARY_ITEMS}`], 120_000)
@@ -195,14 +217,19 @@ async function selectFor(ctx: Ctx, id: string) {
   return ref
 }
 
-async function loadParsed(ctx: Ctx, accountId: string, id: string): Promise<Shown> {
-  const cached = parsed.get(cacheKey(accountId, id))
-  if (cached) return cached
+/** A whole message as stored. BODY.PEEK: downloading a message doesn't mark it as read. */
+async function loadRaw(ctx: Ctx, id: string): Promise<Uint8Array> {
   const ref = await selectFor(ctx, id)
-  // BODY.PEEK: downloading a message doesn't mark it as read.
   const r = await ctx.client.run([`UID FETCH ${ref.uid} (BODY.PEEK[])`], 300_000)
   const raw = r.untagged.filter((u) => u.type === 'FETCH').map(fetchAttributes).find((a) => a.has('BODY[]'))?.get('BODY[]')
   if (!(raw instanceof Uint8Array)) throw new Error('The message is no longer on the server.')
+  return raw
+}
+
+async function loadParsed(ctx: Ctx, accountId: string, id: string): Promise<Shown> {
+  const cached = parsed.get(cacheKey(accountId, id))
+  if (cached) return cached
+  const raw = await loadRaw(ctx, id)
   const outer = await parseMessage(raw)
   const h = pecHeaders(['x-trasporto', 'x-ricevuta', 'x-riferimento-message-id'].map((k) => `${k}: ${outer.headers.get(k) ?? ''}`).join('\n'))
   const p: Shown = h ? await pecView(raw, outer, h) : outer
@@ -240,9 +267,16 @@ async function expunge(ctx: Ctx, uidSet: string) {
 async function searchMail(ctx: Ctx, accountId: string, target: { search: string; inbox?: boolean }, count: number) {
   const criteria = searchCriteria(target.search, !!ctx.account.imap?.pec)
   if (!criteria) return { messages: [], hasMore: false }
+  return searchFolders(ctx, accountId, criteria, count, !!target.inbox)
+}
+
+async function searchFolders(ctx: Ctx, accountId: string, criteria: string | Part[], count: number, inboxOnly = false) {
   const { list, special } = await ctx.folders()
+  const ns = namespaceOf(list)
   const skip = new Set([special.trash, special.spam, special.drafts])
-  const paths = target.inbox ? ['INBOX'] : ['INBOX', ...list.filter((f) => f.selectable && !isInbox(f.path) && !skip.has(f.path)).map((f) => f.path)]
+  const paths = inboxOnly
+    ? ['INBOX']
+    : ['INBOX', ...list.filter((f) => f.selectable && !isInbox(f.path) && !skip.has(f.path) && !(ns && isAppFolder(f.path, ns))).map((f) => f.path)]
   const out: MailSummary[] = []
   let hasMore = false
   for (const path of paths) {
@@ -270,22 +304,161 @@ async function destination(ctx: Ctx, dest: ListTarget, from: string): Promise<st
   return from
 }
 
+/** Where new folders go: servers that keep every folder under "INBOX." want new ones there too. */
+function namespaceOf(list: ListedFolder[]): Namespace | undefined {
+  const delimiter = list.find((f) => f.delimiter)?.delimiter
+  if (!delimiter) return undefined
+  const others = list.filter((f) => !isInbox(f.path))
+  const prefix = others.length && others.every((f) => f.path.toUpperCase().startsWith(`INBOX${delimiter}`)) ? `INBOX${delimiter}` : ''
+  return { prefix, delimiter }
+}
+
 async function createArchive(ctx: Ctx): Promise<string> {
   const { list } = await ctx.folders()
-  const delim = list.find((f) => f.delimiter)?.delimiter ?? null
-  const others = list.filter((f) => !isInbox(f.path))
-  // Servers that keep every folder under "INBOX." want new ones there too.
-  const prefix = delim && others.length && others.every((f) => f.path.toUpperCase().startsWith(`INBOX${delim}`)) ? `INBOX${delim}` : ''
-  const path = prefix + encodeMailboxName(i18n.t('imap.folder.archive'))
+  const path = (namespaceOf(list)?.prefix ?? '') + encodeMailboxName(i18n.t('imap.folder.archive'))
   await ctx.client.run(['CREATE ', { str: path }])
   await ctx.client.run(['SUBSCRIBE ', { str: path }]).catch(() => undefined)
   ctx.forgetFolders()
   return (await ctx.folders()).special.archive ?? path
 }
 
-const notYet = async (): Promise<never> => {
-  throw new NotYetError()
+/** Moves messages of one folder; answers their new ids (from COPYUID when the server says). */
+async function moveFrom(ctx: Ctx, accountId: string, path: string, ids: string[], to: string): Promise<string[]> {
+  if (to === path) return ids
+  const refs = []
+  for (const id of ids) refs.push(await selectFor(ctx, id))
+  const set = refs.map((r) => r.uid).join(',')
+  let r: CommandResult
+  if (ctx.client.has('MOVE')) r = await ctx.client.run([`UID MOVE ${set} `, { str: to }], 120_000)
+  else {
+    r = await ctx.client.run([`UID COPY ${set} `, { str: to }], 120_000)
+    await expunge(ctx, set)
+  }
+  forgetDates(accountId, path, refs.map((x) => x.uid))
+  const copied = copiedUids([...r.untagged, r.done])
+  return refs.map((ref) => {
+    const uid = copied?.map.get(ref.uid)
+    const id = copied && uid ? messageId({ path: to, uidValidity: copied.uidValidity, uid }) : messageId(ref)
+    movedFrom.set(id, path)
+    return id
+  })
 }
+
+// ---------- Rules (IMAP servers have none: the app runs them on new Inbox mail) ----------
+
+/** The last Inbox message the rules have seen and when, as "UIDVALIDITY:UID:time" (no message content). */
+const RULES_SEEN = 'mail-vibes.imap-rules-seen.'
+const ruleErrors = new Set<string>()
+
+async function runRules(ctx: Ctx, accountId: string, box: Selected, idx: DateIndex) {
+  const key = RULES_SEEN + accountId
+  let seen = ''
+  try {
+    seen = localStorage.getItem(key) ?? ''
+  } catch {
+    return
+  }
+  const [validity, last, lastRun] = seen.split(':').map(Number)
+  const save = () => {
+    try {
+      localStorage.setItem(key, `${box.uidValidity}:${idx.maxUid}:${Date.now()}`)
+    } catch {
+      // Private mode: the rules run again on the same mail next time (harmless).
+    }
+  }
+  const rules = ctx.account.imap?.rules ?? []
+  // First run, or the Inbox was reset on the server: rules act on mail from now on.
+  if (validity !== box.uidValidity || !last || !rules.length || idx.maxUid <= last) return save()
+  const pec = !!ctx.account.imap?.pec
+  // Mail moved back into the Inbox (unsnoozed, or by hand) is new to the Inbox but keeps its
+  // arrival time: rules, like Gmail's and Outlook's, are for mail as it arrives.
+  const since = (lastRun || 0) - 10 * 60_000
+  const arrived = (u: number) => u > last && (idx.dates.get(u) ?? 0) >= since
+  for (const rule of rules) {
+    const criteria = ruleCriteria(rule, pec, last + 1)
+    if (!criteria) continue
+    try {
+      await ctx.select('INBOX')
+      // "UID n:*" always includes the newest message, even when it's older than n.
+      const uids = (await search(ctx, criteria)).filter(arrived)
+      if (!uids.length) continue
+      if (rule.markRead) await ctx.client.run([`UID STORE ${uids.join(',')} +FLAGS.SILENT (\\Seen)`])
+      if (rule.move.kind === 'none') continue
+      const dest: ListTarget = rule.move.kind === 'folder' ? { folderId: rule.move.id } : rule.move.kind === 'delete' ? 'trash' : 'archive'
+      const to = await destination(ctx, dest, 'INBOX')
+      const ids = uids.map((uid) => messageId({ path: 'INBOX', uidValidity: box.uidValidity, uid }))
+      await moveFrom(ctx, accountId, 'INBOX', ids, to)
+    } catch (e) {
+      // Once per rule and session: a broken rule (e.g. its folder was deleted) mustn't block the Inbox.
+      if (ruleErrors.has(rule.id)) continue
+      ruleErrors.add(rule.id)
+      useStatus.getState().toast({ tone: 'error', message: i18n.t('imap.ruleFailed', { reason: (e as Error).message }) })
+    }
+  }
+  save()
+}
+
+// ---------- Snoozed and scheduled mail: folders named after the time ----------
+
+/** The time folders seen, by account and path: their messages are snoozed or scheduled until then */
+const timedAt = new Map<string, { kind: TimedKind; at: number }>()
+
+function timedFields(accountId: string, path: string): Pick<MailSummary, 'snoozedUntil' | 'scheduledAt'> {
+  const t = timedAt.get(cacheKey(accountId, path))
+  if (!t) return {}
+  return t.kind === 'Snoozed' ? { snoozedUntil: t.at } : { scheduledAt: t.at }
+}
+
+async function timedFolders(ctx: Ctx, kind: TimedKind) {
+  const { list } = await ctx.folders(true)
+  const ns = namespaceOf(list)
+  if (!ns) return []
+  return list.flatMap((f) => {
+    const at = f.selectable ? timedFolderTime(f.path, ns, kind) : undefined
+    if (at === undefined) return []
+    timedAt.set(cacheKey(ctx.account.id, f.path), { kind, at })
+    return [{ path: f.path, at }]
+  })
+}
+
+async function timedFolder(ctx: Ctx, kind: TimedKind, at: number) {
+  const { list } = await ctx.folders()
+  const ns = namespaceOf(list)
+  if (!ns) throw new Error(i18n.t('imap.noHierarchy'))
+  const path = timedPath(ns, kind, at)
+  if (!list.some((f) => f.path === path)) {
+    await ctx.client.run(['CREATE ', { str: path }]).catch(async (e) => {
+      // Created meanwhile (another device)? Then it's fine.
+      ctx.forgetFolders()
+      if (!(await ctx.folders()).list.some((f) => f.path === path)) throw e
+    })
+    ctx.forgetFolders()
+  }
+  return path
+}
+
+/** Removes the time folders that have become empty. */
+async function dropEmptyTimed(ctx: Ctx, kind: TimedKind) {
+  for (const f of await timedFolders(ctx, kind)) {
+    const r = await ctx.client.run(['STATUS ', { str: f.path }, ' (MESSAGES)']).catch(() => undefined)
+    const items = asList(r?.untagged.find((u) => u.type === 'STATUS')?.values[1])
+    const i = items.findIndex((v) => asText(v).toUpperCase() === 'MESSAGES')
+    if (i < 0 || Number(asText(items[i + 1])) !== 0) continue
+    await ctx.select('INBOX') // a folder can't be deleted while it's open
+    await ctx.client.run(['DELETE ', { str: f.path }]).catch(() => undefined)
+  }
+  ctx.forgetFolders()
+}
+
+async function listTimed(ctx: Ctx, accountId: string, kind: TimedKind, count: number) {
+  const out: MailSummary[] = []
+  for (const f of await timedFolders(ctx, kind)) {
+    out.push(...(await listFolder(ctx, accountId, f.path, count)).messages)
+  }
+  out.sort((a, b) => b.date - a.date)
+  return { messages: out.slice(0, count), hasMore: out.length > count }
+}
+
 
 // ---------- Writing mail ----------
 
@@ -413,17 +586,38 @@ async function saveDraft(accountId: string, d: ImapDraft) {
   })
 }
 
+/** Sends through the account's outgoing server. */
+async function smtpSend(accountId: string, recipients: string[], raw: Uint8Array) {
+  const account = accountOf(accountId)
+  const out = account.imap?.outgoing
+  const bridge = useSettings.getState().bridge
+  if (!out) throw new Error(i18n.t('imap.receiveOnly'))
+  if (!bridge) throw new Error(i18n.t('imap.noBridge'))
+  const password = await getPassword(out.samePassword ? accountId : smtpKey(accountId))
+  if (!password) throw new Error(i18n.t('imap.smtpPasswordMissing'))
+  let smtp: SmtpClient | undefined
+  try {
+    smtp = await SmtpClient.connect(bridge, out)
+    await smtp.login(out.username, password)
+    await smtp.send(account.email, recipients, raw)
+  } catch (e) {
+    throw new Error(i18n.t('imap.smtpFailed', { reason: (e as Error).message }))
+  } finally {
+    await smtp?.quit()
+  }
+}
+
 /** After sending: a copy in Sent, unless the server puts one there itself (checked once). */
-async function keepSentCopy(ctx: Ctx, accountId: string, d: ImapDraft) {
+async function keepSentCopy(ctx: Ctx, accountId: string, id: string, raw: Uint8Array) {
   const path = (await ctx.folders()).special.sent
   if (!path) return
   if (!serverSavesSent.has(accountId)) {
     await new Promise((r) => setTimeout(r, 3000))
     await ctx.select(path, true)
-    serverSavesSent.set(accountId, (await search(ctx, ['HEADER Message-ID ', { str: d.messageId }])).length > 0)
+    serverSavesSent.set(accountId, (await search(ctx, ['HEADER Message-ID ', { str: id }])).length > 0)
   }
   if (serverSavesSent.get(accountId)) return
-  await append(ctx, path, await draftBytes(accountId, d, true), '\\Seen')
+  await append(ctx, path, raw, '\\Seen')
 }
 
 const composeMethods: Pick<MailProvider, 'createDraft' | 'updateDraft' | 'addAttachment' | 'removeAttachment' | 'sendDraft' | 'deleteDraft' | 'loadDraft'> = {
@@ -492,30 +686,14 @@ const composeMethods: Pick<MailProvider, 'createDraft' | 'updateDraft' | 'addAtt
 
   async sendDraft(accountId, draftId) {
     const d = draftOf(accountId, draftId)
-    const account = accountOf(accountId)
-    const out = account.imap?.outgoing
-    const bridge = useSettings.getState().bridge
-    if (!out) throw new Error(i18n.t('imap.receiveOnly'))
-    if (!bridge) throw new Error(i18n.t('imap.noBridge'))
-    const password = await getPassword(out.samePassword ? accountId : smtpKey(accountId))
-    if (!password) throw new Error(i18n.t('imap.smtpPasswordMissing'))
     const recipients = [...d.content.to, ...d.content.cc, ...d.content.bcc].map((a) => a.email)
-    let smtp: SmtpClient | undefined
-    try {
-      smtp = await SmtpClient.connect(bridge, out)
-      await smtp.login(out.username, password)
-      await smtp.send(account.email, recipients, await draftBytes(accountId, d, false))
-    } catch (e) {
-      throw new Error(i18n.t('imap.smtpFailed', { reason: (e as Error).message }))
-    } finally {
-      await smtp?.quit()
-    }
+    await smtpSend(accountId, recipients, await draftBytes(accountId, d, false))
     drafts.delete(cacheKey(accountId, draftId))
     // Sent. The rest is tidying up: a failure there is reported but doesn't undo the sending.
     await session(accountId)
       .run(async (ctx) => {
         await removeSaved(ctx, accountId, d)
-        await keepSentCopy(ctx, accountId, d)
+        await keepSentCopy(ctx, accountId, d.messageId, await draftBytes(accountId, d, true))
         if (d.source) {
           const ref = await selectFor(ctx, d.source.id)
           await ctx.client.run([`UID STORE ${ref.uid} +FLAGS.SILENT (${d.source.kind === 'forward' ? '$Forwarded' : '\\Answered'})`])
@@ -553,6 +731,54 @@ const composeMethods: Pick<MailProvider, 'createDraft' | 'updateDraft' | 'addAtt
   },
 }
 
+// ---------- Sending later ----------
+
+/**
+ * A scheduled message waits in a folder named after its send time (see keywords.ts), with its
+ * Bcc line; the app sends it when the time comes (see useSnoozeWaker).
+ */
+const scheduleMethods: Pick<MailProvider, 'scheduleDraft' | 'unschedule' | 'sendScheduled'> = {
+  async scheduleDraft(accountId, draftId, at) {
+    const d = drafts.get(cacheKey(accountId, draftId))
+    await session(accountId).run(async (ctx) => {
+      const to = await timedFolder(ctx, 'Send later', at)
+      if (d) {
+        // An open draft: its message goes to the time folder, its Drafts copy away.
+        await append(ctx, to, await draftBytes(accountId, d, true), '\\Draft \\Seen')
+        await removeSaved(ctx, accountId, d)
+      } else await moveFrom(ctx, accountId, parseMessageId(draftId).path, [draftId], to) // a new time
+      await dropEmptyTimed(ctx, 'Send later')
+    })
+    drafts.delete(cacheKey(accountId, draftId))
+  },
+
+  /** Back to Drafts; answers the draft's id there. */
+  async unschedule(accountId, id) {
+    return session(accountId).run(async (ctx) => {
+      const path = (await ctx.folders()).special.drafts
+      if (!path) throw new Error(i18n.t('imap.noSpecialFolder', { folder: i18n.t('imap.folder.drafts') }))
+      const [moved] = await moveFrom(ctx, accountId, parseMessageId(id).path, [id], path)
+      await dropEmptyTimed(ctx, 'Send later')
+      return moved
+    })
+  },
+
+  async sendScheduled(accountId, id) {
+    const raw = await session(accountId).run((ctx) => loadRaw(ctx, id))
+    const p = await parseMessage(raw)
+    const date = rfc5322Date(new Date())
+    const recipients = [...p.to, ...p.cc, ...p.bcc].map((a) => a.email)
+    if (!recipients.length) throw new Error(i18n.t('compose.needRecipient'))
+    await smtpSend(accountId, recipients, rewriteHeaders(raw, date, true))
+    await session(accountId).run(async (ctx) => {
+      await keepSentCopy(ctx, accountId, p.headers.get('message-id') ?? '', rewriteHeaders(raw, date, false))
+      const ref = await selectFor(ctx, id)
+      await removeMessages(ctx, accountId, ref.path, [ref.uid])
+      await dropEmptyTimed(ctx, 'Send later')
+    })
+  },
+}
+
 // ---------- The adapter ----------
 
 export const imap: MailProvider = {
@@ -560,7 +786,8 @@ export const imap: MailProvider = {
     return session(accountId).run(async (ctx) => {
       if (typeof target === 'string') {
         if (target === 'inbox') return listFolder(ctx, accountId, 'INBOX', count)
-        if (target === 'snoozed' || target === 'scheduled') return { messages: [], hasMore: false }
+        if (target === 'snoozed') return listTimed(ctx, accountId, 'Snoozed', count)
+        if (target === 'scheduled') return listTimed(ctx, accountId, 'Send later', count)
         const { special } = await ctx.folders()
         if (target === 'starred') {
           // Flagged messages of the Inbox and the Archive, newest first.
@@ -577,8 +804,7 @@ export const imap: MailProvider = {
       }
       if ('folderId' in target) return listFolder(ctx, accountId, folderPath(target.folderId), count)
       if ('search' in target) return searchMail(ctx, accountId, target, count)
-      // Tags come in a later version.
-      return { messages: [], hasMore: false }
+      return searchFolders(ctx, accountId, ['KEYWORD ', { str: tagToKeyword(target.tag) }], count)
     })
   },
 
@@ -649,27 +875,7 @@ export const imap: MailProvider = {
       const newIds: string[] = []
       for (const [path, group] of groupByFolder(ids)) {
         const to = await destination(ctx, dest, movedFrom.get(group[0]) ?? 'INBOX')
-        if (to === path) {
-          newIds.push(...group)
-          continue
-        }
-        const refs = []
-        for (const id of group) refs.push(await selectFor(ctx, id))
-        const set = refs.map((r) => r.uid).join(',')
-        let r: CommandResult
-        if (ctx.client.has('MOVE')) r = await ctx.client.run([`UID MOVE ${set} `, { str: to }], 120_000)
-        else {
-          r = await ctx.client.run([`UID COPY ${set} `, { str: to }], 120_000)
-          await expunge(ctx, set)
-        }
-        forgetDates(accountId, path, refs.map((x) => x.uid))
-        const copied = copiedUids([...r.untagged, r.done])
-        for (const ref of refs) {
-          const uid = copied?.map.get(ref.uid)
-          const id = copied && uid ? messageId({ path: to, uidValidity: copied.uidValidity, uid }) : messageId(ref)
-          movedFrom.set(id, path)
-          newIds.push(id)
-        }
+        newIds.push(...(await moveFrom(ctx, accountId, path, group, to)))
       }
       return newIds
     })
@@ -685,14 +891,34 @@ export const imap: MailProvider = {
       }
     })
   },
-  snooze: notYet,
-  unsnooze: notYet,
+  async snooze(accountId, ids, until) {
+    await session(accountId).run(async (ctx) => {
+      const to = await timedFolder(ctx, 'Snoozed', until)
+      for (const [path, group] of groupByFolder(ids)) await moveFrom(ctx, accountId, path, group, to)
+      await dropEmptyTimed(ctx, 'Snoozed')
+    })
+  },
+
+  /** Back to the Inbox, unread. */
+  async unsnooze(accountId, ids) {
+    await session(accountId).run(async (ctx) => {
+      const back: string[] = []
+      for (const [path, group] of groupByFolder(ids)) back.push(...(await moveFrom(ctx, accountId, path, group, 'INBOX')))
+      const uids = back.map(parseMessageId).filter((r) => isInbox(r.path)).map((r) => r.uid)
+      if (uids.length) {
+        await ctx.select('INBOX')
+        await ctx.client.run([`UID STORE ${uids.join(',')} -FLAGS.SILENT (\\Seen)`])
+      }
+      await dropEmptyTimed(ctx, 'Snoozed')
+    })
+  },
 
   async folders(accountId) {
     return session(accountId).run(async (ctx) => {
       const { list, special } = await ctx.folders(true)
       const specialPaths = new Set(Object.values(special))
-      const own = list.filter((f) => !isInbox(f.path) && !specialPaths.has(f.path))
+      const ns = namespaceOf(list)
+      const own = list.filter((f) => !isInbox(f.path) && !specialPaths.has(f.path) && !(ns && isAppFolder(f.path, ns)))
       const out: MailFolder[] = []
       for (const f of own) {
         out.push({ id: folderId(f.path), name: f.name, depth: f.depth, unread: f.selectable ? await unseen(ctx, f) : 0 })
@@ -701,8 +927,31 @@ export const imap: MailProvider = {
     })
   },
 
-  tags: async () => [],
-  setTags: notYet,
+  async tags(accountId) {
+    return session(accountId).run(async (ctx) => {
+      const box = await ctx.select('INBOX', true)
+      const names = new Map<string, MailTag>()
+      for (const k of [...box.flags, ...(seenKeywords.get(accountId) ?? [])]) {
+        const name = keywordToTag(k)
+        if (name) names.set(name.toLowerCase(), { name })
+      }
+      return [...names.values()]
+    }, true)
+  },
+
+  async setTags(accountId, messages, add, remove) {
+    await session(accountId).run(async (ctx) => {
+      for (const [, group] of groupByFolder(messages.map((m) => m.id))) {
+        const uids = []
+        for (const id of group) uids.push((await selectFor(ctx, id)).uid)
+        const box = await ctx.select(parseMessageId(group[0]).path)
+        if (!box.keywords) throw new Error(i18n.t('imap.noTags'))
+        const set = uids.join(',')
+        if (add.length) await ctx.client.run([`UID STORE ${set} +FLAGS.SILENT (${add.map(tagToKeyword).join(' ')})`])
+        if (remove.length) await ctx.client.run([`UID STORE ${set} -FLAGS.SILENT (${remove.map(tagToKeyword).join(' ')})`])
+      }
+    })
+  },
 
   async unreadCount(accountId, folder) {
     return session(accountId).run(async (ctx) => {
@@ -737,11 +986,9 @@ export const imap: MailProvider = {
   },
 
   ...composeMethods,
-  // Sending later comes in a later version (the composer doesn't offer it for IMAP accounts yet).
-  scheduleDraft: notYet,
-  unschedule: notYet,
+  ...scheduleMethods,
+  // IMAP servers can't send later: the app sends scheduled messages when their time comes.
   sendsScheduledItself: false,
-  sendScheduled: notYet,
 }
 
 /** Unread messages of a folder (STATUS doesn't change the open folder). */

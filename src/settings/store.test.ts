@@ -121,6 +121,7 @@ describe('IMAP accounts in the export file', () => {
       outgoing: { host: 'smtp.example.com', port: 465, security: 'tls' as const, username: 'user-id', samePassword: true },
       pec: true,
       folders: { sent: 'INBOX.Posta inviata' },
+      rules: [{ id: 'r1', from: 'news@example.com', words: '', markRead: true, move: { kind: 'folder' as const, id: 'Zm9v' } }],
     },
   }
   it('round-trips server settings', () => {
@@ -134,5 +135,15 @@ describe('IMAP accounts in the export file', () => {
     expect(parseSettingsJson(file).accounts[0].imap).not.toHaveProperty('password')
     const broken = { ...imap, imap: { ...imap.imap, incoming: { ...imap.imap.incoming, host: 'not a host' } } }
     expect(parseSettingsJson(exportSettingsJson({ ...sample, accounts: [broken] })).accounts).toEqual([])
+  })
+  it('keeps only valid rules', () => {
+    const rules = [
+      ...imap.imap.rules,
+      { id: 'r2', from: '', words: '', markRead: true, move: { kind: 'none' } },
+      { id: 'r3', from: 'x', words: '', markRead: false, move: { kind: 'none' } },
+      { id: 'r4', from: 'x', words: '', markRead: false, move: { kind: 'teleport' } },
+    ]
+    const odd = { ...imap, imap: { ...imap.imap, rules } } as unknown as typeof imap
+    expect(parseSettingsJson(exportSettingsJson({ ...sample, accounts: [odd] })).accounts[0].imap?.rules).toEqual(imap.imap.rules)
   })
 })

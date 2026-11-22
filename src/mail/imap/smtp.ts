@@ -171,3 +171,42 @@ export function dotStuff(message: Uint8Array): Uint8Array {
   out.set([0x2e, 0x0d, 0x0a], o)
   return out
 }
+
+/**
+ * A stored message made ready to send: the Date header set to now, and (for sending) the Bcc
+ * header removed. Headers are 7-bit (encoded words), so they're edited as Latin-1 text.
+ */
+export function rewriteHeaders(raw: Uint8Array, date: string, dropBcc: boolean): Uint8Array {
+  let end = -1
+  for (let i = 0; i + 3 < raw.length; i++) {
+    if (raw[i] === 13 && raw[i + 1] === 10 && raw[i + 2] === 13 && raw[i + 3] === 10) {
+      end = i + 2
+      break
+    }
+  }
+  if (end < 0) return raw
+  let head = ''
+  for (let i = 0; i < end; i++) head += String.fromCharCode(raw[i])
+  const lines = head.split('\r\n').filter(Boolean)
+  const out: string[] = []
+  let skipping = false
+  let dated = false
+  for (const line of lines) {
+    if (/^[ \t]/.test(line)) {
+      if (!skipping) out.push(line)
+      continue
+    }
+    skipping = (dropBcc && /^bcc:/i.test(line)) || /^date:/i.test(line)
+    if (/^date:/i.test(line) && !dated) {
+      out.push(`Date: ${date}`)
+      dated = true
+    }
+    if (!skipping) out.push(line)
+  }
+  if (!dated) out.unshift(`Date: ${date}`)
+  const newHead = out.join('\r\n') + '\r\n'
+  const bytes = new Uint8Array(newHead.length + raw.length - end)
+  for (let i = 0; i < newHead.length; i++) bytes[i] = newHead.charCodeAt(i) & 0xff
+  bytes.set(raw.subarray(end), newHead.length)
+  return bytes
+}

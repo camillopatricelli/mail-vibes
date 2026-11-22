@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dotStuff, SmtpReader } from './smtp'
+import { dotStuff, rewriteHeaders, SmtpReader } from './smtp'
 
 describe('SMTP replies', () => {
   it('joins multi-line replies and waits for the last line', () => {
@@ -20,3 +20,18 @@ describe('SMTP message data', () => {
     expect(text(dotStuff(new TextEncoder().encode('no newline')))).toBe('no newline\r\n.\r\n')
   })
 })
+
+describe('Sending a scheduled message', () => {
+  const enc = (x: string) => new TextEncoder().encode(x)
+  const dec = (b: Uint8Array) => new TextDecoder().decode(b)
+  it('gives it the sending date and leaves out Bcc (also folded lines)', () => {
+    const raw = enc('From: a@example.com\r\nBcc: b@example.com,\r\n c@example.com\r\nDate: Mon, 1 Jan 2024 00:00:00 +0000\r\nSubject: Hi\r\n\r\nBody\r\nDate: kept\r\n')
+    expect(dec(rewriteHeaders(raw, 'Tue, 2 Jan 2024 09:00:00 +0100', true))).toBe(
+      'From: a@example.com\r\nDate: Tue, 2 Jan 2024 09:00:00 +0100\r\nSubject: Hi\r\n\r\nBody\r\nDate: kept\r\n',
+    )
+  })
+  it('adds a Date header when there is none', () => {
+    expect(dec(rewriteHeaders(enc('Subject: Hi\r\n\r\nx'), 'D', false))).toBe('Date: D\r\nSubject: Hi\r\n\r\nx')
+  })
+})
+

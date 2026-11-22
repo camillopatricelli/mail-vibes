@@ -4,7 +4,7 @@ import { fileSize } from '../lib/format'
 import { useSettings } from '../settings/store'
 import { Button, Icon, IconButton } from '../ui/components'
 import { Spinner } from '../ui/overlay'
-import { canSend, isImap, isMailCapable } from './api'
+import { canSend, isMailCapable } from './api'
 import { formatAddress, isValidEmail, parseAddresses, suggestAddresses } from './addressBook'
 import {
   attachFiles,
@@ -321,7 +321,7 @@ function ComposerWindow({ c }: { c: Composer }) {
             <Button variant="filled" icon="send" disabled={busy} onClick={() => void send(c.id)}>
               {c.phase === 'sending' ? t('compose.sending') : t('compose.send')}
             </Button>
-            {!isImap(c.accountId) && <IconButton icon="schedule_send" label={t('compose.sendLater')} disabled={busy} onClick={() => setPickingTime(true)} />}
+            <IconButton icon="schedule_send" label={t('compose.sendLater')} disabled={busy} onClick={() => setPickingTime(true)} />
             <SnoozeDialog
               mode="send"
               open={pickingTime}

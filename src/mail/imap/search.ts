@@ -51,3 +51,19 @@ export function copiedUids(responses: ImapResponse[]): { uidValidity: number; ma
   if (from.length !== to.length) return undefined
   return { uidValidity: Number(asText(code.args[0])) || 0, map: new Map(from.map((u, i) => [u, to[i]])) }
 }
+
+/**
+ * A rule's criteria for messages from `fromUid` on (rules are run by the app: IMAP has none).
+ * "Contains" looks in subject and body, or only the subject on PEC servers (slow body search).
+ */
+export function ruleCriteria(rule: { from: string; words: string }, light: boolean, fromUid: number): Part[] | undefined {
+  const from = rule.from.trim()
+  const words = rule.words.trim()
+  if (!from && !words) return undefined
+  const parts: Part[] = []
+  if (/[^\x20-\x7e]/.test(from + words)) parts.push('CHARSET UTF-8 ')
+  parts.push(`UID ${fromUid}:*`)
+  if (from) parts.push(' FROM ', { str: from })
+  if (words) parts.push(light ? ' SUBJECT ' : ' TEXT ', { str: words })
+  return parts
+}

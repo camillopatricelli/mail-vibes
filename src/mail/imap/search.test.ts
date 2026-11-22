@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseResponse } from './parse'
-import { copiedUids, expandUidSet, searchCriteria } from './search'
+import { copiedUids, expandUidSet, ruleCriteria, searchCriteria } from './search'
 
 const flat = (parts: ReturnType<typeof searchCriteria>) => parts?.map((p) => (typeof p === 'string' ? p : 'str' in p ? `<${p.str}>` : '?')).join('')
 
@@ -14,6 +14,13 @@ describe('IMAP search', () => {
 
   it('searches only subject and sender on PEC servers, and says when words are UTF-8', () => {
     expect(flat(searchCriteria('perché', true))).toBe('CHARSET UTF-8 OR SUBJECT <perché> FROM <perché>')
+  })
+
+  it('builds rule criteria for new mail, subject-only on PEC servers', () => {
+    expect(flat(ruleCriteria({ from: 'news@example.com', words: '' }, false, 41))).toBe('UID 41:* FROM <news@example.com>')
+    expect(flat(ruleCriteria({ from: '', words: 'fattura' }, false, 7))).toBe('UID 7:* TEXT <fattura>')
+    expect(flat(ruleCriteria({ from: 'x', words: 'perché' }, true, 7))).toBe('CHARSET UTF-8 UID 7:* FROM <x> SUBJECT <perché>')
+    expect(ruleCriteria({ from: ' ', words: '' }, false, 1)).toBeUndefined()
   })
 
   it('reads COPYUID to give moved messages their new ids', () => {

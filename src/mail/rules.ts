@@ -2,8 +2,8 @@ import { AuthRequiredError } from '../auth/errors'
 import { MAILBOX_SCOPES } from '../auth/msal'
 import { google } from '../providers/google'
 import { ApiError, graph, type GraphPage } from '../providers/graph'
-import { useSettings } from '../settings/store'
-import { providerFor } from './api'
+import { useSettings, type ImapRule } from '../settings/store'
+import { isImap, providerFor } from './api'
 import { refreshAccountMail } from './data'
 import type { MailSummary } from './types'
 
@@ -12,6 +12,9 @@ import type { MailSummary } from './types'
  * work while Mail Vibes is closed): Gmail filters and Outlook Inbox rules. The app edits the
  * simple kind (from / contains → mark as read, archive, move, delete) and lists the others
  * read-only, with a link to Gmail or Outlook.
+ *
+ * IMAP servers have no rules: an IMAP account's rules are kept in the settings and run by the
+ * app on new Inbox mail (src/mail/imap/provider.ts), so only while Mail Vibes is open.
  */
 
 export type RuleMove = { kind: 'none' } | { kind: 'archive' } | { kind: 'folder'; id: string } | { kind: 'delete' }
@@ -275,14 +278,38 @@ async function listOutlook(accountId: string): Promise<RuleList> {
   }
 }
 
+// ---- IMAP rules (kept in the settings) ------------------------------------------------------
+
+const imapRules = (accountId: string) => useSettings.getState().accounts.find((a) => a.id === accountId)?.imap?.rules ?? []
+
+function setImapRules(accountId: string, rules: ImapRule[]) {
+  const s = useSettings.getState()
+  const imap = s.accounts.find((a) => a.id === accountId)?.imap
+  if (imap) s.updateAccount(accountId, { imap: { ...imap, rules: rules.length ? rules : undefined } })
+}
+
+async function listImap(accountId: string): Promise<RuleList> {
+  return {
+    needsConsent: false,
+    rules: imapRules(accountId).map(({ id, ...spec }) => ({ accountId, id, spec, label: defaultRuleName(spec), enabled: true, hasError: false })),
+  }
+}
+
 // ---- Shared ---------------------------------------------------------------------------------
 
 const isGoogle = (accountId: string) => accountId.startsWith('google:')
 
-export const listRules = (accountId: string) => (isGoogle(accountId) ? listGmail(accountId) : listOutlook(accountId))
+export const listRules = (accountId: string) =>
+  isImap(accountId) ? listImap(accountId) : isGoogle(accountId) ? listGmail(accountId) : listOutlook(accountId)
 
 /** Creates a rule, or replaces `existing`. Gmail filters can't be edited, so a new one replaces the old. */
 export async function saveRule(accountId: string, spec: RuleSpec, existing?: MailRule, nextSequence = 1) {
+  if (isImap(accountId)) {
+    const rule: ImapRule = { id: existing?.id ?? crypto.randomUUID(), from: spec.from.trim(), words: spec.words.trim(), markRead: spec.markRead, move: spec.move }
+    const rules = imapRules(accountId)
+    setImapRules(accountId, existing ? rules.map((r) => (r.id === existing.id ? rule : r)) : [...rules, rule])
+    return
+  }
   if (isGoogle(accountId)) {
     await google(accountId, `${GMAIL}/settings/filters`, { method: 'POST', body: specToGmail(spec) })
     if (existing) await google(accountId, `${GMAIL}/settings/filters/${existing.id}`, { method: 'DELETE' })
@@ -302,7 +329,8 @@ export async function saveRule(accountId: string, spec: RuleSpec, existing?: Mai
 }
 
 export async function deleteRule(rule: MailRule) {
-  if (isGoogle(rule.accountId)) await google(rule.accountId, `${GMAIL}/settings/filters/${rule.id}`, { method: 'DELETE' })
+  if (isImap(rule.accountId)) setImapRules(rule.accountId, imapRules(rule.accountId).filter((r) => r.id !== rule.id))
+  else if (isGoogle(rule.accountId)) await google(rule.accountId, `${GMAIL}/settings/filters/${rule.id}`, { method: 'DELETE' })
   else await graph(rule.accountId, `${RULES}/${rule.id}`, { method: 'DELETE', scopes: MAILBOX_SCOPES })
 }
 
@@ -320,10 +348,14 @@ const MAX_EXISTING = 100
 export async function findExisting(accountId: string, spec: RuleSpec): Promise<MailSummary[]> {
   const from = spec.from.trim().toLowerCase()
   const words = spec.words.trim()
-  // Gmail understands its own search syntax; Outlook gets one phrase and the sender is checked here.
+  // Gmail understands its own search syntax (IMAP accounts the same few words); Outlook gets one
+  // phrase and the sender is checked here.
+  const unquote = (s: string) => s.replace(/"/g, '')
   const search = isGoogle(accountId)
     ? [from && `from:(${from.replace(/[()]/g, '')})`, words && gmailPhrase(words)].filter(Boolean).join(' ')
-    : words || from
+    : isImap(accountId)
+      ? [from && `from:"${unquote(from)}"`, words && `"${unquote(words)}"`].filter(Boolean).join(' ')
+      : words || from
   const r = await providerFor(accountId).list(accountId, { search, inbox: true }, MAX_EXISTING)
   return r.messages.filter((m) => !from || `${m.from.email} ${m.from.name ?? ''}`.toLowerCase().includes(from))
 }

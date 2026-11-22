@@ -14,6 +14,8 @@ export interface Selected {
   exists: number
   /** Keywords (tags) can be stored: PERMANENTFLAGS contains \* */
   keywords: boolean
+  /** Flags and keywords in use in the folder (the FLAGS response) */
+  flags: string[]
 }
 
 /** What an operation gets: the logged-in client, with helpers that remember the open folder. */
@@ -101,6 +103,7 @@ class Session {
           uidValidity: Number(asText(r.untagged.find((u) => u.code?.name === 'UIDVALIDITY')?.code?.args[0])) || 0,
           exists: r.untagged.filter((u) => u.type === 'EXISTS').pop()?.num ?? 0,
           keywords: !!perm && asList(perm.code!.args[0]).some((v) => asText(v) === '\\*'),
+          flags: asList(r.untagged.find((u) => u.type === 'FLAGS')?.values[0]).map(asText),
         }
         return this.selected
       },

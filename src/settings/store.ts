@@ -34,6 +34,19 @@ export interface ImapSettings {
   pec: boolean
   /** Special folders chosen by hand (mailbox path), overriding detection */
   folders?: Partial<Record<SpecialFolder, string>>
+  /** Mail rules, run by the app on new Inbox mail (IMAP servers have no rules of their own) */
+  rules?: ImapRule[]
+}
+
+export type ImapRuleMove = { kind: 'none' } | { kind: 'archive' } | { kind: 'folder'; id: string } | { kind: 'delete' }
+
+/** Same fields as the rule editor's RuleSpec: sender (or part of it), words, actions. */
+export interface ImapRule {
+  id: string
+  from: string
+  words: string
+  markRead: boolean
+  move: ImapRuleMove
 }
 export type Section = 'today' | 'mail' | 'calendar' | 'tasks'
 export type ThemePref = 'system' | 'light' | 'dark'
@@ -368,7 +381,24 @@ export function parseImapSettings(v: unknown): ImapSettings | undefined {
     }
     if (Object.keys(folders).length) out.folders = folders
   }
+  if (Array.isArray(s.rules)) {
+    const rules = s.rules.map(parseImapRule).filter((r): r is ImapRule => !!r)
+    if (rules.length) out.rules = rules
+  }
   return out
+}
+
+function parseImapRule(v: unknown): ImapRule | undefined {
+  const r = v as Partial<ImapRule> | undefined
+  if (!r || !isStr(r.id) || !isStr(r.from) || !isStr(r.words) || (!r.from.trim() && !r.words.trim())) return undefined
+  const m = r.move as Partial<{ kind: string; id: unknown }> | undefined
+  let move: ImapRuleMove
+  if (m?.kind === 'none' || m?.kind === 'archive' || m?.kind === 'delete') move = { kind: m.kind }
+  else if (m?.kind === 'folder' && isStr(m.id) && m.id) move = { kind: 'folder', id: m.id }
+  else return undefined
+  const markRead = r.markRead === true
+  if (!markRead && move.kind === 'none') return undefined
+  return { id: r.id, from: r.from, words: r.words, markRead, move }
 }
 
 // ---------- Microsoft 365 organisations ----------
