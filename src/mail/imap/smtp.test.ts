@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SmtpReader } from './smtp'
+import { dotStuff, SmtpReader } from './smtp'
 
 describe('SMTP replies', () => {
   it('joins multi-line replies and waits for the last line', () => {
@@ -10,5 +10,13 @@ describe('SMTP replies', () => {
     ])
     expect(r.push(enc('250 STARTTLS\r'))).toEqual([])
     expect(r.push(enc('\n'))).toEqual([{ code: 250, lines: ['smtp.example.com', 'AUTH PLAIN LOGIN', 'STARTTLS'] }])
+  })
+})
+
+describe('SMTP message data', () => {
+  const text = (b: Uint8Array) => new TextDecoder().decode(b)
+  it('doubles dots at line starts and ends with CRLF . CRLF', () => {
+    expect(text(dotStuff(new TextEncoder().encode('.hidden\r\nok.\r\n..two\r\n')))).toBe('..hidden\r\nok.\r\n...two\r\n.\r\n')
+    expect(text(dotStuff(new TextEncoder().encode('no newline')))).toBe('no newline\r\n.\r\n')
   })
 })

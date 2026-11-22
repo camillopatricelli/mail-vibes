@@ -3,6 +3,9 @@
  * stream to a mail server, carried over a WebSocket to the user's own Cloudflare Worker.
  */
 
+/** Largest piece sent in one WebSocket message (the bridge's limit is 1 MiB) */
+const CHUNK = 256 * 1024
+
 export interface BridgeConfig {
   /** https:// or wss:// address of the Worker */
   url: string
@@ -118,7 +121,10 @@ export function openConnection(cfg: BridgeConfig, host: string, port: number, se
       },
       onClose: () => {},
       send: (data) => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(typeof data === 'string' ? encoder.encode(data) : (data as Uint8Array<ArrayBuffer>))
+        if (ws.readyState !== WebSocket.OPEN) return
+        const bytes = typeof data === 'string' ? encoder.encode(data) : (data as Uint8Array<ArrayBuffer>)
+        // Cloudflare limits WebSocket messages to 1 MiB: big messages (attachments) go in pieces.
+        for (let i = 0; i < bytes.length || i === 0; i += CHUNK) ws.send(bytes.subarray(i, i + CHUNK))
       },
       startTls: () =>
         new Promise<void>((res, rej) => {

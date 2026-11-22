@@ -1,7 +1,9 @@
 import i18n from '../../i18n'
 import { specialFolders, useSettings, type SpecialFolder } from '../../settings/store'
 import { useStatus } from '../../status/store'
-import type { Attachment, FolderKind, ListTarget, MailFolder, MailMessage, MailProvider, MailSummary, PecDetails } from '../types'
+import { escapeHtml, sanitizeForEditor } from '../html'
+import { buildMime } from '../mime'
+import type { Address, Attachment, DraftContent, FolderKind, ListTarget, MailFolder, MailMessage, MailProvider, MailSummary, PecDetails, ReplyKind } from '../types'
 import { isDeleted, isDraftFlag, isFlagged, isSeen, parseInternalDate, parseSummary, SUMMARY_ITEMS, threadRoot, type FetchedSummary } from './envelope'
 import { isInbox, type ListedFolder } from './folders'
 import { folderId, folderPath, messageId, parseMessageId, parseThreadId, threadIdOf } from './ids'
@@ -10,7 +12,9 @@ import { originalSender, originalSubject, pecHeaders, pecView } from './pec'
 import type { CommandResult, Part } from './client'
 import { asList, asText, encodeMailboxName, fetchAttributes, type ImapResponse } from './parse'
 import { copiedUids, searchCriteria } from './search'
+import { getPassword, smtpKey } from './passwords'
 import { NotYetError, session, type Ctx } from './session'
+import { SmtpClient } from './smtp'
 
 /**
  * Mail adapter for IMAP accounts (through the user's bridge, see bridge/worker.js).
@@ -283,6 +287,272 @@ const notYet = async (): Promise<never> => {
   throw new NotYetError()
 }
 
+// ---------- Writing mail ----------
+
+interface DraftFile {
+  meta: Attachment
+  blob: Blob
+  contentId?: string
+}
+
+/**
+ * A message being written. The composer knows it by a handle that never changes; each save puts
+ * a new copy in the Drafts folder (IMAP messages can't be edited) and removes the previous one.
+ */
+interface ImapDraft {
+  content: DraftContent
+  quotedHtml: string
+  files: DraftFile[]
+  /** Message-ID header, the same in every saved copy and in the sent message */
+  messageId: string
+  inReplyTo?: string
+  references?: string
+  /** The message replied to or forwarded, flagged as answered / forwarded once sent */
+  source?: { id: string; kind: ReplyKind }
+  /** The copy in the Drafts folder (unknown id: saved on a server without UIDPLUS) */
+  saved?: { id?: string }
+}
+const drafts = new Map<string, ImapDraft>()
+/** Whether each account's outgoing server puts a copy of sent mail in Sent by itself */
+const serverSavesSent = new Map<string, boolean>()
+
+function accountOf(accountId: string) {
+  const a = useSettings.getState().accounts.find((x) => x.id === accountId)
+  if (!a?.imap) throw new Error('Unknown IMAP account')
+  return a
+}
+
+const ownAddress = (accountId: string): Address => {
+  const a = accountOf(accountId)
+  return { name: a.displayName && a.displayName !== a.email ? a.displayName : '', email: a.email }
+}
+
+function draftOf(accountId: string, handle: string) {
+  const d = drafts.get(cacheKey(accountId, handle))
+  if (!d) throw new Error('This draft is no longer open; open it again from Drafts.')
+  return d
+}
+
+const newMessageId = (email: string) => `<${crypto.randomUUID()}@${email.split('@')[1] || 'mail-vibes'}>`
+const prefixed = (subject: string, prefix: 'Re' | 'Fwd') =>
+  (prefix === 'Re' ? /^\s*re\s*:/i : /^\s*(fwd?|i)\s*:/i).test(subject) ? subject : `${prefix}: ${subject}`
+const who = (a: Address) => escapeHtml(a.name ? `${a.name} <${a.email}>` : a.email)
+function dedupe(list: Address[], skip: string[]) {
+  const seen = new Set(skip.map((e) => e.toLowerCase()))
+  return list.filter((a) => {
+    const e = a.email.toLowerCase()
+    if (seen.has(e)) return false
+    seen.add(e)
+    return true
+  })
+}
+
+async function draftBytes(accountId: string, d: ImapDraft, withBcc: boolean) {
+  const blob = await buildMime({
+    from: ownAddress(accountId),
+    to: d.content.to,
+    cc: d.content.cc,
+    bcc: withBcc ? d.content.bcc : [],
+    subject: d.content.subject,
+    html: d.quotedHtml ? `${d.content.html}<br>${d.quotedHtml}` : d.content.html,
+    inReplyTo: d.inReplyTo,
+    references: d.references,
+    attachments: d.files.map((f) => ({ name: f.meta.name, contentType: f.meta.contentType, blob: f.blob, contentId: f.contentId })),
+    messageId: d.messageId,
+    date: new Date(),
+  })
+  return new Uint8Array(await blob.arrayBuffer())
+}
+
+/** Adds a message to a folder; answers its id if the server says (UIDPLUS). */
+async function append(ctx: Ctx, path: string, raw: Uint8Array, flags: string) {
+  const r = await ctx.client.run(['APPEND ', { str: path }, ` (${flags}) `, raw], 300_000)
+  const code = [r.done, ...r.untagged].find((x) => x.code?.name === 'APPENDUID')?.code
+  const uid = Number(asText(code?.args[1]))
+  return code && uid ? messageId({ path, uidValidity: Number(asText(code.args[0])), uid }) : undefined
+}
+
+/** UIDs in the Drafts folder holding a draft's copies (servers without UIDPLUS) */
+async function draftCopies(ctx: Ctx, path: string, d: ImapDraft) {
+  await ctx.select(path)
+  return search(ctx, ['HEADER Message-ID ', { str: d.messageId }])
+}
+
+async function removeMessages(ctx: Ctx, accountId: string, path: string, uids: number[]) {
+  if (!uids.length) return
+  await ctx.select(path)
+  await expunge(ctx, uids.join(','))
+  forgetDates(accountId, path, uids)
+}
+
+/** Removes the draft's saved copy, if any. */
+async function removeSaved(ctx: Ctx, accountId: string, d: ImapDraft) {
+  if (!d.saved) return
+  if (d.saved.id) {
+    const ref = parseMessageId(d.saved.id)
+    const box = await ctx.select(ref.path)
+    if (box.uidValidity === ref.uidValidity) await removeMessages(ctx, accountId, ref.path, [ref.uid])
+  } else {
+    const path = (await ctx.folders()).special.drafts
+    if (path) await removeMessages(ctx, accountId, path, await draftCopies(ctx, path, d))
+  }
+  d.saved = undefined
+}
+
+/** Saves the draft in the Drafts folder (without a Drafts folder it stays in the window only). */
+async function saveDraft(accountId: string, d: ImapDraft) {
+  await session(accountId).run(async (ctx) => {
+    const path = (await ctx.folders()).special.drafts
+    if (!path) return
+    // Without UIDPLUS the previous copies are found by Message-ID, before adding the new one.
+    const old = d.saved && !d.saved.id ? await draftCopies(ctx, path, d) : undefined
+    const id = await append(ctx, path, await draftBytes(accountId, d, true), '\\Draft \\Seen')
+    if (old) await removeMessages(ctx, accountId, path, old)
+    else await removeSaved(ctx, accountId, d)
+    d.saved = { id }
+  })
+}
+
+/** After sending: a copy in Sent, unless the server puts one there itself (checked once). */
+async function keepSentCopy(ctx: Ctx, accountId: string, d: ImapDraft) {
+  const path = (await ctx.folders()).special.sent
+  if (!path) return
+  if (!serverSavesSent.has(accountId)) {
+    await new Promise((r) => setTimeout(r, 3000))
+    await ctx.select(path, true)
+    serverSavesSent.set(accountId, (await search(ctx, ['HEADER Message-ID ', { str: d.messageId }])).length > 0)
+  }
+  if (serverSavesSent.get(accountId)) return
+  await append(ctx, path, await draftBytes(accountId, d, true), '\\Seen')
+}
+
+const composeMethods: Pick<MailProvider, 'createDraft' | 'updateDraft' | 'addAttachment' | 'removeAttachment' | 'sendDraft' | 'deleteDraft' | 'loadDraft'> = {
+  async createDraft(accountId, content, replyTo) {
+    const me = ownAddress(accountId)
+    const d: ImapDraft = { content, quotedHtml: '', files: [], messageId: newMessageId(me.email) }
+    if (replyTo) {
+      const o = await session(accountId).run((ctx) => loadParsed(ctx, accountId, replyTo.messageId))
+      const from = o.from ?? { name: '', email: '' }
+      const origId = o.headers.get('message-id')
+      const date = new Date(o.date || Date.now()).toLocaleString(i18n.language, { dateStyle: 'full', timeStyle: 'short' })
+      const quoted = sanitizeForEditor(o.bodyHtml)
+      d.source = { id: replyTo.messageId, kind: replyTo.kind }
+      if (replyTo.kind === 'forward') {
+        d.content = { ...content, subject: prefixed(o.subject, 'Fwd') }
+        d.quotedHtml =
+          `<div class="gmail_quote">${escapeHtml(i18n.t('compose.forwardHeader'))}<br>` +
+          `${escapeHtml(i18n.t('compose.fieldFrom'))}: ${who(from)}<br>` +
+          `${escapeHtml(i18n.t('compose.fieldDate'))}: ${escapeHtml(date)}<br>` +
+          `${escapeHtml(i18n.t('compose.subject'))}: ${escapeHtml(o.subject)}<br>` +
+          `${escapeHtml(i18n.t('compose.to'))}: ${o.to.map(who).join(', ')}<br><br>${quoted}</div>`
+        d.files = o.attachments.map((a) => ({ meta: a.meta, blob: a.blob, contentId: a.contentId }))
+      } else {
+        const fromMe = from.email.toLowerCase() === me.email.toLowerCase()
+        const primary = fromMe ? o.to : o.replyTo.length ? o.replyTo : [from]
+        const to = replyTo.kind === 'replyAll' ? dedupe([...primary, ...o.to], [me.email]) : dedupe(primary, [])
+        const cc = replyTo.kind === 'replyAll' ? dedupe(o.cc, [me.email, ...to.map((a) => a.email)]) : []
+        d.content = { ...content, to, cc, bcc: [], subject: prefixed(o.subject, 'Re') }
+        d.inReplyTo = origId
+        d.references = [o.headers.get('references'), origId].filter(Boolean).join(' ') || undefined
+        d.quotedHtml =
+          `<div class="gmail_quote"><div>${escapeHtml(i18n.t('compose.quoteHeader', { date, name: from.name || from.email }))}</div>` +
+          `<blockquote class="gmail_quote" style="margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex">${quoted}</blockquote></div>`
+        // Inline images of the quoted message keep working in the reply.
+        d.files = o.attachments.filter((a) => a.contentId && a.meta.isInline).map((a) => ({ meta: a.meta, blob: a.blob, contentId: a.contentId }))
+      }
+    }
+    const handle = `draft-${crypto.randomUUID()}`
+    drafts.set(cacheKey(accountId, handle), d)
+    // Saved to Drafts once the user writes something (an untouched reply is simply closed).
+    return { id: handle, quotedHtml: d.quotedHtml, content: d.content }
+  },
+
+  async updateDraft(accountId, draft, content) {
+    const d = draftOf(accountId, draft.id)
+    d.content = content
+    await saveDraft(accountId, d)
+  },
+
+  async addAttachment(accountId, draftId, file, onProgress) {
+    const d = draftOf(accountId, draftId)
+    d.files.push({
+      meta: { id: crypto.randomUUID(), name: file.name, contentType: file.type || 'application/octet-stream', size: file.size, isInline: false },
+      blob: file,
+    })
+    await saveDraft(accountId, d)
+    onProgress?.(1)
+    return d.files.map((f) => f.meta)
+  },
+
+  async removeAttachment(accountId, draftId, attachmentId) {
+    const d = draftOf(accountId, draftId)
+    d.files = d.files.filter((f) => f.meta.id !== attachmentId)
+    await saveDraft(accountId, d)
+  },
+
+  async sendDraft(accountId, draftId) {
+    const d = draftOf(accountId, draftId)
+    const account = accountOf(accountId)
+    const out = account.imap?.outgoing
+    const bridge = useSettings.getState().bridge
+    if (!out) throw new Error(i18n.t('imap.receiveOnly'))
+    if (!bridge) throw new Error(i18n.t('imap.noBridge'))
+    const password = await getPassword(out.samePassword ? accountId : smtpKey(accountId))
+    if (!password) throw new Error(i18n.t('imap.smtpPasswordMissing'))
+    const recipients = [...d.content.to, ...d.content.cc, ...d.content.bcc].map((a) => a.email)
+    let smtp: SmtpClient | undefined
+    try {
+      smtp = await SmtpClient.connect(bridge, out)
+      await smtp.login(out.username, password)
+      await smtp.send(account.email, recipients, await draftBytes(accountId, d, false))
+    } catch (e) {
+      throw new Error(i18n.t('imap.smtpFailed', { reason: (e as Error).message }))
+    } finally {
+      await smtp?.quit()
+    }
+    drafts.delete(cacheKey(accountId, draftId))
+    // Sent. The rest is tidying up: a failure there is reported but doesn't undo the sending.
+    await session(accountId)
+      .run(async (ctx) => {
+        await removeSaved(ctx, accountId, d)
+        await keepSentCopy(ctx, accountId, d)
+        if (d.source) {
+          const ref = await selectFor(ctx, d.source.id)
+          await ctx.client.run([`UID STORE ${ref.uid} +FLAGS.SILENT (${d.source.kind === 'forward' ? '$Forwarded' : '\\Answered'})`])
+        }
+      })
+      .catch((e) => useStatus.getState().toast({ tone: 'error', message: i18n.t('imap.afterSendFailed', { reason: (e as Error).message }) }))
+  },
+
+  async deleteDraft(accountId, draftId) {
+    const d = drafts.get(cacheKey(accountId, draftId))
+    await session(accountId).run(async (ctx) => {
+      if (d) await removeSaved(ctx, accountId, d)
+      else {
+        // A draft in the Drafts folder that isn't open
+        const ref = await selectFor(ctx, draftId)
+        await removeMessages(ctx, accountId, ref.path, [ref.uid])
+      }
+    })
+    drafts.delete(cacheKey(accountId, draftId))
+  },
+
+  async loadDraft(accountId, id) {
+    const p = await session(accountId).run((ctx) => loadParsed(ctx, accountId, id))
+    const d: ImapDraft = {
+      content: { to: p.to, cc: p.cc, bcc: p.bcc, subject: p.subject, html: p.bodyHtml },
+      quotedHtml: '',
+      files: p.attachments.map((a) => ({ meta: a.meta, blob: a.blob, contentId: a.contentId })),
+      messageId: p.headers.get('message-id') || newMessageId(accountOf(accountId).email),
+      inReplyTo: p.headers.get('in-reply-to'),
+      references: p.headers.get('references'),
+      saved: { id },
+    }
+    drafts.set(cacheKey(accountId, id), d)
+    return { content: d.content, attachments: d.files.map((f) => f.meta) }
+  },
+}
+
 // ---------- The adapter ----------
 
 export const imap: MailProvider = {
@@ -443,10 +713,14 @@ export const imap: MailProvider = {
   },
 
   async attachments(accountId, id): Promise<Attachment[]> {
+    const d = drafts.get(cacheKey(accountId, id))
+    if (d) return d.files.map((f) => f.meta)
     return session(accountId).run(async (ctx) => (await loadParsed(ctx, accountId, id)).attachments.map((a) => a.meta))
   },
 
   async downloadAttachment(accountId, id, attachmentId) {
+    const file = drafts.get(cacheKey(accountId, id))?.files.find((f) => f.meta.id === attachmentId)
+    if (file) return file.blob
     return session(accountId).run(async (ctx) => {
       const a = (await loadParsed(ctx, accountId, id)).attachments.find((x) => x.meta.id === attachmentId)
       if (!a) throw new Error('Attachment not found')
@@ -462,18 +736,12 @@ export const imap: MailProvider = {
     })
   },
 
-  // Writing mail comes in a later version (the app doesn't offer it for IMAP accounts yet).
-  createDraft: notYet,
-  updateDraft: notYet,
-  addAttachment: notYet,
-  removeAttachment: notYet,
-  sendDraft: notYet,
+  ...composeMethods,
+  // Sending later comes in a later version (the composer doesn't offer it for IMAP accounts yet).
   scheduleDraft: notYet,
   unschedule: notYet,
   sendsScheduledItself: false,
   sendScheduled: notYet,
-  deleteDraft: notYet,
-  loadDraft: notYet,
 }
 
 /** Unread messages of a folder (STATUS doesn't change the open folder). */

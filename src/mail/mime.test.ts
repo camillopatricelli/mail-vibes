@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decodeBase64Url, decodeText, encodeWord, formatMimeAddress, parseAddressHeader } from './mime'
+import { decodeBase64Url, decodeText, encodeWord, formatMimeAddress, parseAddressHeader, rfc5322Date } from './mime'
 
 describe('mime helpers', () => {
   it('leaves ASCII alone and encodes other text as UTF-8 words', () => {
@@ -29,5 +29,12 @@ describe('mime helpers', () => {
   it('decodes base64url data', () => {
     const b64url = btoa('ciao è').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
     expect(decodeText(decodeBase64Url(b64url), 'latin1')).toBe('ciao è')
+  })
+})
+
+describe('message dates', () => {
+  it('formats RFC 5322 dates with the local time zone', () => {
+    const s = rfc5322Date(new Date(2026, 10, 22, 9, 5, 7))
+    expect(s).toMatch(/^Sun, 22 Nov 2026 09:05:07 [+-]\d{4}$/)
   })
 })

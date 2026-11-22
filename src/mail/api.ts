@@ -1,3 +1,4 @@
+import { useSettings } from '../settings/store'
 import type { MailProvider } from './types'
 import { gmail } from './gmail'
 import { imap } from './imap/provider'
@@ -19,6 +20,7 @@ export const isImap = (accountId: string) => accountId.startsWith('imap:')
 
 /** Whether mail can be written from this account (IMAP sending comes in a later version). */
 export function canSend(accountId: string) {
+  if (isImap(accountId)) return !!useSettings.getState().accounts.find((a) => a.id === accountId)?.imap?.outgoing
   return accountId.startsWith('microsoft:') || accountId.startsWith('google:')
 }
 

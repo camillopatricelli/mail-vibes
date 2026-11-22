@@ -130,6 +130,19 @@ export class SmtpClient {
     if (r.code !== 235) throw new MailServerError('auth', `${r.code} ${r.lines.join(' ')}`)
   }
 
+  /**
+   * Sends a message: the envelope sender and recipients, then the raw message (CRLF line ends).
+   * Lines starting with a dot are doubled, as SMTP requires.
+   */
+  async send(from: string, recipients: string[], message: Uint8Array) {
+    const utf8 = [from, ...recipients].some((a) => /[^ -~]/.test(a)) && this.extensions.has('SMTPUTF8') ? ' SMTPUTF8' : ''
+    this.expect(await this.command(`MAIL FROM:<${from}>${utf8}`), 250)
+    for (const r of recipients) this.expect(await this.command(`RCPT TO:<${r}>`), 250, 251)
+    this.expect(await this.command('DATA'), 354)
+    this.conn.send(dotStuff(message))
+    this.expect(await this.reply(300_000), 250)
+  }
+
   async quit() {
     try {
       await this.command('QUIT')
@@ -138,4 +151,23 @@ export class SmtpClient {
     }
     this.conn.close()
   }
+}
+
+/** The DATA section: "." at a line start doubled, ending with CRLF . CRLF */
+export function dotStuff(message: Uint8Array): Uint8Array {
+  let dots = 0
+  for (let i = 0; i < message.length; i++) if (message[i] === 0x2e && (i === 0 || message[i - 1] === 0x0a)) dots++
+  const endsWithNewline = message.length > 0 && message[message.length - 1] === 0x0a
+  const out = new Uint8Array(message.length + dots + (endsWithNewline ? 0 : 2) + 3)
+  let o = 0
+  for (let i = 0; i < message.length; i++) {
+    if (message[i] === 0x2e && (i === 0 || message[i - 1] === 0x0a)) out[o++] = 0x2e
+    out[o++] = message[i]
+  }
+  if (!endsWithNewline) {
+    out[o++] = 0x0d
+    out[o++] = 0x0a
+  }
+  out.set([0x2e, 0x0d, 0x0a], o)
+  return out
 }

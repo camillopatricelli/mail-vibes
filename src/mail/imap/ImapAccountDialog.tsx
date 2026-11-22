@@ -186,7 +186,6 @@ export function ImapAccountDialog({ accountId, onClose }: { accountId?: string; 
                 <input className="text-field text-field--outlined" type="password" autoComplete="off" value={smtpPassword} onChange={(e) => setSmtpPw(e.target.value)} />
               </label>
             )}
-            <p className="body-small muted">{t('imap.sendingLater')}</p>
           </>
         ) : (
           <p className="body-small muted">{t('imap.receiveOnly')}</p>

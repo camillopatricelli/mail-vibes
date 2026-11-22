@@ -20,6 +20,9 @@ export interface MimeMessage {
   inReplyTo?: string
   references?: string
   attachments: MimeAttachment[]
+  /** Set when the app sends the message itself (SMTP), not through a provider's API */
+  messageId?: string
+  date?: Date
 }
 
 const ASCII = /^[\x20-\x7e]*$/
@@ -79,6 +82,16 @@ function blobToBase64(blob: Blob): Promise<string> {
   })
 }
 
+/** "Sun, 22 Nov 2026 10:15:00 +0100" in the device's time zone */
+export function rfc5322Date(d: Date) {
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const p = (n: number) => String(n).padStart(2, '0')
+  const off = -d.getTimezoneOffset()
+  const zone = `${off >= 0 ? '+' : '-'}${p(Math.floor(Math.abs(off) / 60))}${p(Math.abs(off) % 60)}`
+  return `${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} ${zone}`
+}
+
 const boundary = () => `mv_${crypto.randomUUID().replace(/-/g, '')}`
 
 /** Builds the raw message (CRLF line endings, 7-bit safe). */
@@ -90,6 +103,8 @@ export async function buildMime(m: MimeMessage): Promise<Blob> {
     m.cc.length ? `Cc: ${list(m.cc)}` : '',
     m.bcc.length ? `Bcc: ${list(m.bcc)}` : '',
     `Subject: ${encodeWord(m.subject)}`,
+    m.date ? `Date: ${rfc5322Date(m.date)}` : '',
+    m.messageId ? `Message-ID: ${m.messageId}` : '',
     m.inReplyTo ? `In-Reply-To: ${m.inReplyTo}` : '',
     m.references ? `References: ${m.references}` : '',
     'MIME-Version: 1.0',
