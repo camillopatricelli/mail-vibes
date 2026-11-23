@@ -198,8 +198,8 @@
 .dialog__body { flex: 1; overflow: auto; padding: 8px 24px 16px; }
 .dialog__actions { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 24px 20px; }
 .folder-list { list-style: none; margin: 0 -24px; padding: 0; }
-.folder-list button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 24px; border: 0; background: none; cursor: pointer; text-align: left; }
-.folder-list button:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent); }
+.folder-list > li > button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 24px; border: 0; background: none; cursor: pointer; text-align: left; }
+.folder-list > li > button:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent); }
 
 .menu { position: fixed; z-index: 200; min-width: 200px; max-width: 280px; padding: 8px 0; border-radius: var(--md-sys-shape-xs); background: var(--md-sys-color-surface-container); box-shadow: var(--md-sys-elevation-2); }
 .menu__item { display: flex; align-items: center; gap: 12px; width: 100%; height: 48px; padding: 0 16px; border: 0; background: none; cursor: pointer; text-align: left; color: var(--md-sys-color-on-surface); }
