@@ -20,23 +20,23 @@ function NoAccountsHint() {
 
 export function TodayPage() {
   const { t } = useTranslation()
-  const panels: { icon: IconName; title: string }[] = [
-    { icon: 'mail', title: t('placeholder.todayMail') },
-    { icon: 'event', title: t('placeholder.todayAgenda') },
-    { icon: 'task_alt', title: t('placeholder.todayTasks') },
+  const panels: { icon: IconName; title: string; body: React.ReactNode }[] = [
+    { icon: 'event', title: t('placeholder.todayAgenda'), body: <TodayAgenda /> },
+    { icon: 'task_alt', title: t('placeholder.todayTasks'), body: <TodayTasks /> },
+    { icon: 'mail', title: t('placeholder.todayMail'), body: <TodayMail /> },
   ]
   return (
     <div className="today">
       <h1 className="headline-small page-title">{t('nav.today')}</h1>
       <NoAccountsHint />
       <div className="today__panels">
-        {panels.map((p, i) => (
+        {panels.map((p) => (
           <Card key={p.title} className="today__panel">
             <header className="today__panel-head">
               <Icon name={p.icon} />
               <h2 className="title-medium">{p.title}</h2>
             </header>
-            {i === 0 ? <TodayMail /> : i === 1 ? <TodayAgenda /> : <TodayTasks />}
+            {p.body}
           </Card>
         ))}
       </div>
