@@ -6,6 +6,7 @@ import { Card, Icon, type IconName } from '../ui/components'
 import { TodayMail } from '../mail/TodayMail'
 import { TodayAgenda } from '../calendar/TodayAgenda'
 import { TodayTasks } from '../tasks/TodayTasks'
+import { TodayWeather } from '../weather/TodayWeather'
 
 function NoAccountsHint() {
   const { t } = useTranslation()
@@ -29,6 +30,7 @@ export function TodayPage() {
     <div className="today">
       <h1 className="headline-small page-title">{t('nav.today')}</h1>
       <NoAccountsHint />
+      <TodayWeather />
       <div className="today__panels">
         {panels.map((p) => (
           <Card key={p.title} className="today__panel">
@@ -49,7 +51,7 @@ export function PrivacyPage() {
   return (
     <article className="prose">
       <h1 className="headline-small page-title">{t('privacy.title')}</h1>
-      {(['p1', 'p2', 'p3', 'p6', 'p7', 'p4'] as const).map((k) => (
+      {(['p1', 'p2', 'p3', 'p6', 'p7', 'p8', 'p4'] as const).map((k) => (
         <p key={k} className="body-large">
           {t(`privacy.${k}`)}
         </p>

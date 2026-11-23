@@ -1,0 +1,70 @@
+/* ---------- Weather (Today page) ---------- */
+.weather {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 24px;
+  margin-bottom: 16px;
+}
+.weather--message { display: block; }
+.weather__message p { margin: 0 0 8px; }
+@media (max-width: 699px) { .weather { grid-template-columns: minmax(0, 1fr); } }
+
+.weather__now { display: flex; align-items: center; gap: 16px; padding-right: 8px; }
+.weather__temp { font-size: 48px; line-height: 52px; font-weight: 400; letter-spacing: -0.5px; }
+
+.weather__hours {
+  display: flex;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 6px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+.weather__hour {
+  flex: 0 0 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  border-radius: var(--md-sys-shape-lg);
+  scroll-snap-align: start;
+  text-align: center;
+}
+.weather__hour.is-now {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.weather__hour--sun { color: var(--md-sys-color-on-surface-variant); }
+.weather__rain { color: var(--wx-rain); }
+
+.weather__credit {
+  grid-column: 1 / -1;
+  justify-self: end;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* Icon tints for each theme (applyTheme sets data-theme on <html>). */
+:root {
+  --wx-sun: #eb9b00;
+  --wx-moon: #5866c0;
+  --wx-rain: #1e78d0;
+  --wx-snow: #2f8fba;
+  --wx-storm: #7046b8;
+}
+:root[data-theme='dark'] {
+  --wx-sun: #ffcf4a;
+  --wx-moon: #b7c2ff;
+  --wx-rain: #8cc4ff;
+  --wx-snow: #a9e1ff;
+  --wx-storm: #cdb0ff;
+}
+.wx--sun { color: var(--wx-sun); }
+.wx--moon { color: var(--wx-moon); }
+.wx--cloud { color: var(--md-sys-color-on-surface-variant); }
+.wx--rain { color: var(--wx-rain); }
+.wx--snow { color: var(--wx-snow); }
+.wx--storm { color: var(--wx-storm); }

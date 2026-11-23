@@ -111,6 +111,8 @@ export interface Settings {
   notifyAtStart: boolean
   /** First day of the week in the calendar */
   weekStart: WeekStartPref
+  /** Show the weather forecast (for the device's location) on the Today page */
+  weather: boolean
   /** The user's own Google Maps key, for place suggestions in event locations */
   mapsApiKey?: string
   /** The user's own IMAP bridge (docs/imap-bridge.md), needed only for IMAP accounts */
@@ -167,6 +169,7 @@ export const defaultSettings: Settings = {
   notifyEvents: true,
   notifyAtStart: true,
   weekStart: 'monday',
+  weather: true,
   exportBridge: false,
 }
 
@@ -258,6 +261,7 @@ export function pickSettings(s: Settings): Settings {
     notifyEvents: s.notifyEvents ?? true,
     notifyAtStart: s.notifyAtStart ?? true,
     weekStart: s.weekStart ?? 'monday',
+    weather: s.weather ?? true,
     mapsApiKey: s.mapsApiKey || undefined,
     bridge: s.bridge?.url ? { url: s.bridge.url, key: s.bridge.key ?? '' } : undefined,
     exportBridge: s.exportBridge ?? false,
@@ -309,6 +313,7 @@ export function parseSettingsJson(text: string): Settings {
   if (typeof s.notifyEvents === 'boolean') out.notifyEvents = s.notifyEvents
   if (typeof s.notifyAtStart === 'boolean') out.notifyAtStart = s.notifyAtStart
   if (s.weekStart === 'monday' || s.weekStart === 'sunday' || s.weekStart === 'auto') out.weekStart = s.weekStart
+  if (typeof s.weather === 'boolean') out.weather = s.weather
   if (isStr(s.mapsApiKey) && /^[\w-]{20,60}$/.test(s.mapsApiKey.trim())) out.mapsApiKey = s.mapsApiKey.trim()
   if (s.bridge && isStr(s.bridge.url) && /^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(s.bridge.url) && isStr(s.bridge.key)) {
     out.bridge = { url: s.bridge.url, key: s.bridge.key }

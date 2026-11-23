@@ -34,5 +34,7 @@ export function applyTheme(seedHex: string, pref: ThemePref) {
     document.head.appendChild(el)
   }
   el.textContent = css
+  // For the few fixed colours that differ between themes (e.g. weather icons).
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light'
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', vars['--md-sys-color-surface'] ?? '#ffffff')
 }

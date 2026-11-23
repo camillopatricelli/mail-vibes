@@ -27,7 +27,7 @@ const CSP = [
   "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  `connect-src 'self' https://login.microsoftonline.com https://graph.microsoft.com https://*.googleapis.com https://maps.gstatic.com https://accounts.google.com wss://*.workers.dev https://*.workers.dev${bridgeOrigins.map((o) => ` ${o} ${o.replace(/^wss:/, 'https:')}`).join('')}`,
+  `connect-src 'self' https://login.microsoftonline.com https://graph.microsoft.com https://*.googleapis.com https://maps.gstatic.com https://accounts.google.com https://api.open-meteo.com wss://*.workers.dev https://*.workers.dev${bridgeOrigins.map((o) => ` ${o} ${o.replace(/^wss:/, 'https:')}`).join('')}`,
   "frame-src 'self' blob: https://accounts.google.com https://login.microsoftonline.com",
   "worker-src 'self' blob:",
   "object-src 'none'",

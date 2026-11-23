@@ -565,6 +565,9 @@ export function SettingsPage() {
             ))}
           </select>
         </Field>
+        <Field label={t('settings.weather')}>
+          <input type="checkbox" checked={s.weather} onChange={(e) => s.update({ weather: e.target.checked })} aria-label={t('settings.weather')} />
+        </Field>
         <Field label={t('settings.markRead')}>
           <select className="select" value={s.markRead} onChange={(e) => s.update({ markRead: e.target.value as typeof s.markRead })}>
             <option value="never">{t('settings.markReadNever')}</option>
