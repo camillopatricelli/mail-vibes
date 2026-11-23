@@ -5,6 +5,7 @@ import { useSettings } from '../settings/store'
 import { Button } from '../ui/components'
 import { install, useCanInstall } from './install'
 import { notify, permission, requestPermission } from './notify'
+import { disablePush, enablePush, pushSupported, usePushState } from './push'
 
 /** Settings → Notifications and app installation. */
 export function NotificationSettings({ Field }: { Field: (p: { label: string; children: React.ReactNode }) => React.ReactNode }) {
@@ -13,10 +14,25 @@ export function NotificationSettings({ Field }: { Field: (p: { label: string; ch
   const [perm, setPerm] = useState(permission())
   const canInstall = useCanInstall()
   const iosBrowser = isIos() && !isStandalone()
+  const push = usePushState()
+  const [pushBusy, setPushBusy] = useState(false)
+  const [pushError, setPushError] = useState<string>()
+
+  const togglePush = (on: boolean) => {
+    setPushBusy(true)
+    setPushError(undefined)
+    // Started straight from the click: the permission prompt needs it (iPhone, iPad).
+    ;(on ? enablePush() : disablePush())
+      .catch((e) => setPushError((e as Error).message))
+      .finally(() => {
+        setPushBusy(false)
+        setPerm(permission())
+      })
+  }
 
   return (
     <>
-      <p className="body-small muted">{t('notify.onlyWhileOpen')}</p>
+      <p className="body-small muted">{push.on ? t('notify.withPush') : t('notify.onlyWhileOpen')}</p>
       <Field label={t('notify.permission')}>
         {perm === 'granted' ? (
           <span className="body-medium">{t('notify.granted')}</span>
@@ -35,6 +51,40 @@ export function NotificationSettings({ Field }: { Field: (p: { label: string; ch
       </Field>
       <Field label={t('notify.events')}>
         <input type="checkbox" checked={s.notifyEvents} onChange={(e) => s.update({ notifyEvents: e.target.checked })} aria-label={t('notify.events')} />
+      </Field>
+      <Field label={t('notify.atStart')}>
+        <input
+          type="checkbox"
+          checked={s.notifyAtStart}
+          disabled={!s.notifyEvents}
+          onChange={(e) => s.update({ notifyAtStart: e.target.checked })}
+          aria-label={t('notify.atStart')}
+        />
+      </Field>
+      <Field label={t('push.title')}>
+        {!s.bridge ? (
+          <span className="body-small muted">{t('push.needsBridge')}</span>
+        ) : !push.bridgeCan ? (
+          <span className="body-small muted">{t('push.bridgeNotReady')}</span>
+        ) : !pushSupported() ? (
+          <span className="body-small muted">{iosBrowser ? t('notify.iosInstallFirst') : t('notify.unsupported')}</span>
+        ) : (
+          <span className="row-wrap">
+            <input
+              type="checkbox"
+              checked={push.on}
+              disabled={pushBusy || !s.notifyEvents}
+              onChange={(e) => togglePush(e.target.checked)}
+              aria-label={t('push.title')}
+            />
+            <span className="body-small muted">{push.on ? t('push.onHere') : t('push.offHere')}</span>
+          </span>
+        )}
+        {pushError && (
+          <p className="body-small field-error" role="alert">
+            {pushError}
+          </p>
+        )}
       </Field>
       {perm === 'granted' && (
         <Field label={t('notify.test')}>

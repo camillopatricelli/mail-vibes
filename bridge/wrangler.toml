@@ -9,6 +9,16 @@ workers_dev = true
 # Where Mail Vibes is opened from, comma-separated. Add your own address if you host the app yourself.
 ALLOWED_ORIGINS = "https://camillopatricelli.github.io,http://localhost:5173,http://localhost:4173"
 
+# Optional: reminders while Mail Vibes is closed (docs/push-reminders.md). Create the database with
+# `npx wrangler d1 create mail-vibes-push`, put its id below, and uncomment both sections.
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "mail-vibes-push"
+# database_id = "<the id printed by wrangler d1 create>"
+#
+# [triggers]
+# crons = ["* * * * *"]
+
 [observability]
 # Keep logs off: the bridge never logs content or credentials, and needs no request logs either.
 enabled = false

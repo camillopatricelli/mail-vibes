@@ -1,6 +1,7 @@
 import { useQueries } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useEvents } from '../calendar/data'
 import { addDays, startOfDay, toDateKey } from '../calendar/dates'
 import { eventWhen } from '../calendar/format'
@@ -14,6 +15,7 @@ import type { ListResult, MailSummary } from '../mail/types'
 import { useSettings, type AccountSettings } from '../settings/store'
 import { useTasks } from '../tasks/data'
 import { notify, showUnreadCount } from './notify'
+import { uploadReminders, usePushState, type PushReminder } from './push'
 
 const INBOX = { kind: 'well', folder: 'inbox' } as const
 /** Messages older than this that show up in the inbox (moved back, restored) are not announced. */
@@ -111,13 +113,46 @@ const LOOKAHEAD_DAYS = 29
 /** A task reminder missed for longer than this (app closed) is not shown any more. */
 const TASK_GRACE_MS = 3 * 24 * 3600_000
 
+type Shown = ReturnType<typeof useEvents>['events'][number]
+type ShownTask = ReturnType<typeof useTasks>['tasks'][number]
+
+/** Minutes before the start at which an event rings: its reminders, and its start if asked. */
+function ringMinutes(e: Shown, atStart: boolean) {
+  if (e.cancelled || e.myResponse === 'declined') return []
+  const m = new Set(e.reminders)
+  if (atStart && !e.allDay) m.add(0)
+  return [...m]
+}
+
+function eventNotice(e: Shown, t: TFunction) {
+  return {
+    title: e.title || t('calendar.noTitle'),
+    body: [eventWhen(e), e.location].filter(Boolean).join(' · '),
+    tag: `event|${e.accountId}|${e.id}|${e.start}`,
+    hash: href('calendar', 'day', toDateKey(e.start)),
+    joinUrl: e.meeting?.url,
+    joinLabel: e.meeting ? t(`calendar.join.${e.meeting.provider}`) : undefined,
+  }
+}
+
+function taskNotice(task: ShownTask, t: TFunction) {
+  return {
+    title: task.title || t('tasks.noTitle'),
+    body: [task.due !== undefined ? t('tasks.dueOn', { date: new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short' }).format(task.due) }) : '', task.listName].filter(Boolean).join(' · '),
+    tag: `task|${task.accountId}|${task.id}|${task.reminder}`,
+    hash: href('tasks'),
+  }
+}
+
 /**
  * Event reminders at the times set on each event (or its calendar's defaults), including days
- * before. While the app is open; one missed while closed shows when the app opens, until the event starts.
+ * before, and at the start if asked. While the app is open; one missed while closed shows when
+ * the app opens, until the event starts.
  */
 export function useEventNotifier() {
   const { t } = useTranslation()
   const enabled = useSettings((s) => s.notifyEvents)
+  const atStart = useSettings((s) => s.notifyAtStart)
   const now = useNow(30_000)
   const from = startOfDay(now)
   const { events } = useEvents(from, addDays(from, LOOKAHEAD_DAYS), { minRefreshSec: 600 })
@@ -126,28 +161,22 @@ export function useEventNotifier() {
     if (!enabled) return
     const shown = rang()
     for (const e of events) {
-      if (e.cancelled || e.myResponse === 'declined' || !e.reminders.length) continue
       const until = e.allDay ? e.end : e.start + 5 * 60_000
       if (now >= until) continue
-      const due = e.reminders.filter((m) => e.start - m * 60_000 <= now)
+      const due = ringMinutes(e, atStart).filter((m) => e.start - m * 60_000 <= now)
       if (!due.length) continue
-      // A meeting in two of your calendars is announced once; of several due reminders, the latest.
-      const keys = due.map((m) => `event|${e.title}|${e.start}|${m}`)
-      if (keys.some((k) => shown[k])) {
-        markRang(keys, until)
-        continue
-      }
+      // A meeting in two of your calendars is announced once. Of several due reminders only the
+      // latest rings (the others were either shown already or missed while the app was closed).
+      const key = (m: number) => `event|${e.title}|${e.start}|${m}`
+      const latest = key(Math.min(...due))
+      const keys = due.map(key)
+      if (shown[latest]) continue
       markRang(keys, until)
       keys.forEach((k) => (shown[k] = until))
-      void notify(e.title || t('calendar.noTitle'), {
-        body: [eventWhen(e), e.location].filter(Boolean).join(' · '),
-        tag: `event|${e.accountId}|${e.id}|${e.start}`,
-        hash: href('calendar', 'day', toDateKey(e.start)),
-        joinUrl: e.meeting?.url,
-        joinLabel: e.meeting ? t(`calendar.join.${e.meeting.provider}`) : undefined,
-      })
+      const n = eventNotice(e, t)
+      void notify(n.title, n)
     }
-  }, [now, events, enabled, t])
+  }, [now, events, enabled, atStart, t])
 }
 
 /** Task reminders (To Do's own, or the ones Mail Vibes keeps for Google tasks), while the app is open. */
@@ -166,13 +195,57 @@ export function useTaskNotifier() {
       if (shown[key]) continue
       markRang([key], task.reminder + TASK_GRACE_MS + 60_000)
       shown[key] = 1
-      void notify(task.title || t('tasks.noTitle'), {
-        body: [task.due !== undefined ? t('tasks.dueOn', { date: new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short' }).format(task.due) }) : '', task.listName].filter(Boolean).join(' · '),
-        tag: key,
-        hash: href('tasks'),
-      })
+      const n = taskNotice(task, t)
+      void notify(n.title, n)
     }
   }, [now, tasks, enabled, t])
+}
+
+/** Reminders for the bridge are looked for this far ahead (it keeps them until they're due). */
+const PUSH_AHEAD_MS = 7 * 24 * 3600_000
+
+/**
+ * Hands the coming reminders to the bridge, which sends them as push notifications while the app
+ * is closed (src/notify/push.ts). Any device with the reminders setup does it, so the one that is
+ * open keeps the others' reminders up to date. Only changes are uploaded.
+ */
+export function usePushSchedule() {
+  const { t } = useTranslation()
+  const enabled = useSettings((s) => s.notifyEvents)
+  const atStart = useSettings((s) => s.notifyAtStart)
+  const accounts = useSettings((s) => s.accounts)
+  const ready = usePushState((s) => s.bridgeCan && s.hasSetup)
+  const now = useNow(60_000)
+  const from = startOfDay(now)
+  const ev = useEvents(from, addDays(from, LOOKAHEAD_DAYS), { minRefreshSec: 600 })
+  const tk = useTasks()
+
+  useEffect(() => {
+    if (!ready || ev.isLoading || tk.isLoading) return
+    const parts: Record<string, PushReminder[]> = {}
+    const live: string[] = []
+    for (const a of accounts) {
+      live.push(`events|${a.id}`, `tasks|${a.id}`)
+      // An account that failed to load keeps what the bridge already has.
+      if (!ev.errors.some((e) => e.account.id === a.id)) parts[`events|${a.id}`] = []
+      if (!tk.errors.some((e) => e.account.id === a.id)) parts[`tasks|${a.id}`] = []
+    }
+    if (enabled) {
+      const seen = new Set<string>()
+      for (const e of ev.events)
+        for (const m of ringMinutes(e, atStart)) {
+          const at = e.start - m * 60_000
+          const once = `${e.title}|${e.start}|${m}`
+          if (at < now - 60_000 || at > now + PUSH_AHEAD_MS || seen.has(once)) continue
+          seen.add(once)
+          parts[`events|${e.accountId}`]?.push({ at, ...eventNotice(e, t) })
+        }
+      for (const task of tk.tasks)
+        if (!task.completed && task.reminder !== undefined && task.reminder >= now - 60_000 && task.reminder <= now + PUSH_AHEAD_MS)
+          parts[`tasks|${task.accountId}`]?.push({ at: task.reminder, ...taskNotice(task, t) })
+    }
+    void uploadReminders(parts, live)
+  }, [ready, now, ev.events, ev.errors, ev.isLoading, tk.tasks, tk.errors, tk.isLoading, accounts, enabled, atStart, t])
 }
 
 /** Inbox unread count on the window title and the installed app's icon. */

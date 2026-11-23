@@ -107,6 +107,8 @@ export interface Settings {
   notifyMail: boolean
   /** Show the reminders of events and tasks (while the app is open) */
   notifyEvents: boolean
+  /** Also notify when an event starts (not for all-day events) */
+  notifyAtStart: boolean
   /** First day of the week in the calendar */
   weekStart: WeekStartPref
   /** The user's own Google Maps key, for place suggestions in event locations */
@@ -163,6 +165,7 @@ export const defaultSettings: Settings = {
   hiddenTaskLists: [],
   notifyMail: true,
   notifyEvents: true,
+  notifyAtStart: true,
   weekStart: 'monday',
   exportBridge: false,
 }
@@ -253,6 +256,7 @@ export function pickSettings(s: Settings): Settings {
     notifyReminderDismissedAt: s.notifyReminderDismissedAt,
     notifyMail: s.notifyMail ?? true,
     notifyEvents: s.notifyEvents ?? true,
+    notifyAtStart: s.notifyAtStart ?? true,
     weekStart: s.weekStart ?? 'monday',
     mapsApiKey: s.mapsApiKey || undefined,
     bridge: s.bridge?.url ? { url: s.bridge.url, key: s.bridge.key ?? '' } : undefined,
@@ -303,6 +307,7 @@ export function parseSettingsJson(text: string): Settings {
   if (s.markRead === 'never' || s.markRead === 'open' || s.markRead === 'delay') out.markRead = s.markRead
   if (typeof s.notifyMail === 'boolean') out.notifyMail = s.notifyMail
   if (typeof s.notifyEvents === 'boolean') out.notifyEvents = s.notifyEvents
+  if (typeof s.notifyAtStart === 'boolean') out.notifyAtStart = s.notifyAtStart
   if (s.weekStart === 'monday' || s.weekStart === 'sunday' || s.weekStart === 'auto') out.weekStart = s.weekStart
   if (isStr(s.mapsApiKey) && /^[\w-]{20,60}$/.test(s.mapsApiKey.trim())) out.mapsApiKey = s.mapsApiKey.trim()
   if (s.bridge && isStr(s.bridge.url) && /^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(s.bridge.url) && isStr(s.bridge.key)) {

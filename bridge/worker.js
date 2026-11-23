@@ -18,6 +18,9 @@
  *   GOOGLE_CLIENT_SECRET  secret, optional: the client secret of the Google OAuth client the app
  *                         uses. With it, Google sign-ins last until revoked instead of one hour
  *                         (see /google/token). Never put it in the app, a file or the repository.
+ *   DB                    D1 database binding, optional: with it (and a cron trigger running every
+ *                         minute) the bridge sends event and task reminders as push notifications,
+ *                         so they arrive while Mail Vibes is closed. See docs/push-reminders.md.
  *
  * Honest limit: TLS to the mail server ends in this Worker, so your password and mail pass through
  * its memory unencrypted (never stored). Deploy your own bridge; don't use one run by someone else.
@@ -34,11 +37,15 @@
  *        {client_id, code, code_verifier, redirect_uri} (after sign-in) or {client_id, refresh_token}
  *        (renewal), and answers Google's JSON. Stores nothing: the long-lasting token is kept by
  *        the app on the device.
+ *   GET /push/key                              the bridge's public push key (VAPID)
+ *   POST /push/device                          {setup, endpoint, p256dh, auth}: a device to notify
+ *   POST /push/device/remove                   {endpoint}
+ *   POST /push/schedule                        {setup, live, parts}: the coming reminders, encrypted
  */
 import { connect } from 'cloudflare:sockets'
 
 /** Raised when the app needs a newer bridge (it tells the user to update). Only functions may be exported: Workers treat exports as entry points. */
-const VERSION = 2
+const VERSION = 3
 
 const MAIL_PORTS = [993, 143, 465, 587, 4190]
 /** Ports that start in plain text and must switch to TLS with STARTTLS */
@@ -64,11 +71,15 @@ export default {
     if (url.pathname === '/connect') return relay(request, env, url)
     if (url.pathname === '/check')
       return keyMatches(bearer(request), env.ACCESS_KEY)
-        ? text(200, `ok ${VERSION}${env.GOOGLE_CLIENT_SECRET ? ' google' : ''}`, cors)
+        ? text(200, `ok ${VERSION}${env.GOOGLE_CLIENT_SECRET ? ' google' : ''}${env.DB ? ' push' : ''}`, cors)
         : text(401, 'Wrong access key', cors)
     if (url.pathname === '/google/token') {
       if (!keyMatches(bearer(request), env.ACCESS_KEY)) return text(401, 'Wrong access key', cors)
       return googleToken(request, env, cors)
+    }
+    if (url.pathname.startsWith('/push/')) {
+      if (!keyMatches(bearer(request), env.ACCESS_KEY)) return text(401, 'Wrong access key', cors)
+      return pushApi(request, env, url, cors)
     }
     if (url.pathname === '/autoconfig') {
       if (!keyMatches(bearer(request), env.ACCESS_KEY)) return text(401, 'Wrong access key', cors)
@@ -77,6 +88,11 @@ export default {
       return Response.json(await autoconfig(domain), { headers: cors })
     }
     return text(404, 'Not found', cors)
+  },
+
+  /** The cron trigger (every minute): reminders that are due go out as push notifications. */
+  async scheduled(event, env, ctx) {
+    if (env.DB) ctx.waitUntil(sendDueReminders(env))
   },
 }
 
@@ -407,4 +423,261 @@ export function parseAutoconfigXml(xml) {
     out.push({ protocol: m[2], host, port, security: socket === 'SSL' ? 'tls' : 'starttls', username: get('username') ?? '%EMAILADDRESS%' })
   }
   return out
+}
+
+// ---------- Push reminders (optional) ----------
+//
+// Needs a D1 database bound as DB and a cron trigger (every minute); see docs/push-reminders.md.
+// The app sends the reminders of the coming days, each one encrypted on the user's devices with a
+// key the bridge never sees ("blob"). The bridge keeps them with their times, and when one is due
+// it sends it as a Web Push message (RFC 8030/8291/8292) to every device registered for the
+// same setup. It can see when reminders are, not what they say.
+
+const PUSH_HOSTS = [/^fcm\.googleapis\.com$/, /(^|\.)push\.apple\.com$/, /^updates\.push\.services\.mozilla\.com$/, /(^|\.)notify\.windows\.com$/]
+const SETUP_RE = /^[A-Za-z0-9_-]{16,64}$/
+const ID_RE = /^[A-Za-z0-9_-]{8,64}$/
+const B64_RE = /^[A-Za-z0-9_-]+$/
+const MAX_PARTS = 60
+const MAX_ITEMS = 400
+const MAX_BLOB = 2400
+/** A reminder that couldn't be sent within this time (bridge or device offline) is dropped. */
+const SEND_WINDOW_MS = 3600_000
+
+/** Only real push services: the bridge must not post to any address it is given. */
+export function pushEndpointAllowed(endpoint, env = {}) {
+  let u
+  try {
+    u = new URL(endpoint)
+  } catch {
+    return false
+  }
+  // Local tests only: DEV_PUSH_LOCAL is set in the git-ignored .dev.vars, never in Cloudflare.
+  if (env.DEV_PUSH_LOCAL === 'yes' && u.protocol === 'http:' && u.hostname === 'localhost') return true
+  return u.protocol === 'https:' && !u.port && PUSH_HOSTS.some((r) => r.test(u.hostname))
+}
+
+const b64u = {
+  enc(bytes) {
+    let bin = ''
+    for (const b of bytes) bin += String.fromCharCode(b)
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  },
+  dec(s) {
+    const b64 = s.replace(/-/g, '+').replace(/_/g, '/')
+    return Uint8Array.from(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)), (c) => c.charCodeAt(0))
+  },
+}
+
+function concat(...parts) {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
+  let i = 0
+  for (const p of parts) {
+    out.set(p, i)
+    i += p.length
+  }
+  return out
+}
+
+async function hkdf(salt, ikm, info, length) {
+  const key = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits'])
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info }, key, length * 8))
+}
+
+/**
+ * Web Push message encryption (RFC 8291, aes128gcm) for a device's p256dh and auth keys.
+ * `fixed` (tests only) supplies the sender's key pair and the salt.
+ */
+export async function encryptPush(plaintext, p256dh, auth, fixed = {}) {
+  const te = new TextEncoder()
+  const uaPublic = b64u.dec(p256dh)
+  const asKeys = fixed.keys ?? (await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']))
+  const asPublic = new Uint8Array(await crypto.subtle.exportKey('raw', asKeys.publicKey))
+  const uaKey = await crypto.subtle.importKey('raw', uaPublic, { name: 'ECDH', namedCurve: 'P-256' }, false, [])
+  const secret = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: uaKey }, asKeys.privateKey, 256))
+  const salt = fixed.salt ?? crypto.getRandomValues(new Uint8Array(16))
+  const ikm = await hkdf(b64u.dec(auth), secret, concat(te.encode('WebPush: info\0'), uaPublic, asPublic), 32)
+  const cek = await hkdf(salt, ikm, te.encode('Content-Encoding: aes128gcm\0'), 16)
+  const nonce = await hkdf(salt, ikm, te.encode('Content-Encoding: nonce\0'), 12)
+  const key = await crypto.subtle.importKey('raw', cek, 'AES-GCM', false, ['encrypt'])
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, key, concat(te.encode(plaintext), [2])))
+  const header = new Uint8Array(21)
+  header.set(salt)
+  new DataView(header.buffer).setUint32(16, 4096)
+  header[20] = asPublic.length
+  return concat(header, asPublic, ct)
+}
+
+/** The bridge's own push identity (VAPID), made the first time and kept in the database. */
+async function vapidKeys(db) {
+  const read = async () => (await db.prepare('SELECT jwk FROM push_keys WHERE id = 1').first())?.jwk
+  let raw = await read()
+  if (!raw) {
+    const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
+    const jwk = await crypto.subtle.exportKey('jwk', pair.privateKey)
+    await db.prepare('INSERT OR IGNORE INTO push_keys (id, jwk) VALUES (1, ?)').bind(JSON.stringify(jwk)).run()
+    raw = await read()
+  }
+  const jwk = JSON.parse(raw)
+  const privateKey = await crypto.subtle.importKey('jwk', { kty: 'EC', crv: 'P-256', d: jwk.d, x: jwk.x, y: jwk.y }, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign'])
+  return { privateKey, publicKey: b64u.enc(concat([4], b64u.dec(jwk.x), b64u.dec(jwk.y))) }
+}
+
+/** The Authorization header for a push service (RFC 8292). */
+export async function vapidAuthorization(endpoint, keys, subject, now = Date.now()) {
+  const te = new TextEncoder()
+  const part = (o) => b64u.enc(te.encode(JSON.stringify(o)))
+  const unsigned = `${part({ typ: 'JWT', alg: 'ES256' })}.${part({ aud: new URL(endpoint).origin, exp: Math.floor(now / 1000) + 12 * 3600, sub: subject })}`
+  const sig = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, keys.privateKey, te.encode(unsigned)))
+  return `vapid t=${unsigned}.${b64u.enc(sig)}, k=${keys.publicKey}`
+}
+
+/** Who runs this bridge, for push services (they require a contact): the app's address. */
+const pushSubject = (env) =>
+  (env.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .find((s) => s.startsWith('https://')) ?? 'https://github.com/camillopatricelli/mail-vibes'
+
+let tablesReady = false
+async function ensureTables(db) {
+  if (tablesReady) return
+  await db.batch([
+    db.prepare('CREATE TABLE IF NOT EXISTS push_keys (id INTEGER PRIMARY KEY, jwk TEXT NOT NULL)'),
+    db.prepare('CREATE TABLE IF NOT EXISTS push_devices (endpoint TEXT PRIMARY KEY, setup TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, updated INTEGER NOT NULL)'),
+    db.prepare('CREATE TABLE IF NOT EXISTS push_parts (setup TEXT NOT NULL, part TEXT NOT NULL, items TEXT NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY (setup, part))'),
+    db.prepare('CREATE TABLE IF NOT EXISTS push_sent (setup TEXT NOT NULL, id TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (setup, id))'),
+  ])
+  tablesReady = true
+}
+
+/** Checks a schedule upload. Answers an error message, or the cleaned-up schedule. Exported for the tests. */
+export function parseSchedule(body) {
+  if (!body || typeof body !== 'object' || typeof body.setup !== 'string' || !SETUP_RE.test(body.setup)) return 'Bad setup'
+  const live = body.live
+  if (!Array.isArray(live) || live.length > MAX_PARTS || !live.every((p) => typeof p === 'string' && ID_RE.test(p))) return 'Bad parts'
+  const parts = {}
+  for (const [part, items] of Object.entries(body.parts ?? {})) {
+    if (!live.includes(part)) return 'Bad parts'
+    if (!Array.isArray(items) || items.length > MAX_ITEMS) return 'Too many reminders'
+    for (const it of items)
+      if (!it || typeof it.id !== 'string' || !ID_RE.test(it.id) || !Number.isFinite(it.at) || typeof it.blob !== 'string' || it.blob.length > MAX_BLOB || !B64_RE.test(it.blob))
+        return 'Bad reminder'
+    parts[part] = items.map((it) => ({ id: it.id, at: Math.round(it.at), blob: it.blob }))
+  }
+  return { setup: body.setup, live, parts }
+}
+
+/** The reminders to send now: due within the last hour and not sent yet. Exported for the tests. */
+export function dueReminders(partItems, sent, now) {
+  const out = new Map()
+  for (const items of partItems) for (const it of items) if (it.at <= now && it.at > now - SEND_WINDOW_MS && !sent.has(it.id)) out.set(it.id, it)
+  return [...out.values()].sort((a, b) => a.at - b.at)
+}
+
+async function readJson(request) {
+  try {
+    return await request.json()
+  } catch {
+    return undefined
+  }
+}
+
+/** /push/key, /push/device, /push/device/remove, /push/schedule */
+async function pushApi(request, env, url, cors) {
+  if (!env.DB) return text(501, 'The bridge has no database (DB) for reminders', cors)
+  const db = env.DB
+  await ensureTables(db)
+  const now = Date.now()
+  if (url.pathname === '/push/key') return Response.json({ publicKey: (await vapidKeys(db)).publicKey }, { headers: cors })
+  if (request.method !== 'POST') return text(405, 'POST expected', cors)
+  const body = await readJson(request)
+
+  if (url.pathname === '/push/device') {
+    const { setup, endpoint, p256dh, auth } = body ?? {}
+    if (typeof setup !== 'string' || !SETUP_RE.test(setup)) return text(400, 'Bad setup', cors)
+    if (typeof endpoint !== 'string' || endpoint.length > 1000 || !pushEndpointAllowed(endpoint, env)) return text(400, 'Not a push service', cors)
+    if (typeof p256dh !== 'string' || !B64_RE.test(p256dh) || p256dh.length > 100 || typeof auth !== 'string' || !B64_RE.test(auth) || auth.length > 40)
+      return text(400, 'Bad keys', cors)
+    await db
+      .prepare(
+        'INSERT INTO push_devices (endpoint, setup, p256dh, auth, updated) VALUES (?, ?, ?, ?, ?) ON CONFLICT (endpoint) DO UPDATE SET setup = excluded.setup, p256dh = excluded.p256dh, auth = excluded.auth, updated = excluded.updated',
+      )
+      .bind(endpoint, setup, p256dh, auth, now)
+      .run()
+    return text(200, 'ok', cors)
+  }
+  if (url.pathname === '/push/device/remove') {
+    if (typeof body?.endpoint !== 'string') return text(400, 'Bad request', cors)
+    await db.prepare('DELETE FROM push_devices WHERE endpoint = ?').bind(body.endpoint).run()
+    return text(200, 'ok', cors)
+  }
+  if (url.pathname === '/push/schedule') {
+    const s = parseSchedule(body)
+    if (typeof s === 'string') return text(400, s, cors)
+    const statements = [
+      db.prepare(`DELETE FROM push_parts WHERE setup = ? AND part NOT IN (SELECT value FROM json_each(?))`).bind(s.setup, JSON.stringify(s.live)),
+      ...Object.entries(s.parts).map(([part, items]) =>
+        db
+          .prepare('INSERT INTO push_parts (setup, part, items, updated) VALUES (?, ?, ?, ?) ON CONFLICT (setup, part) DO UPDATE SET items = excluded.items, updated = excluded.updated')
+          .bind(s.setup, part, JSON.stringify(items), now),
+      ),
+      // Parts that didn't change are still current: keep them from being cleaned up as abandoned.
+      db.prepare(`UPDATE push_parts SET updated = ? WHERE setup = ?`).bind(now, s.setup),
+    ]
+    await db.batch(statements)
+    return text(200, 'ok', cors)
+  }
+  return text(404, 'Not found', cors)
+}
+
+/** Every minute (cron trigger): sends the reminders that are due. */
+export async function sendDueReminders(env, now = Date.now(), send = fetch) {
+  const db = env.DB
+  await ensureTables(db)
+  const { results: rows } = await db.prepare('SELECT setup, items FROM push_parts').all()
+  const bySetup = new Map()
+  for (const r of rows) {
+    let items
+    try {
+      items = JSON.parse(r.items)
+    } catch {
+      continue
+    }
+    if (!bySetup.has(r.setup)) bySetup.set(r.setup, [])
+    bySetup.get(r.setup).push(items)
+  }
+  let keys
+  const auths = new Map()
+  for (const [setup, partItems] of bySetup) {
+    const { results: sentRows } = await db.prepare('SELECT id FROM push_sent WHERE setup = ? AND at > ?').bind(setup, now - 2 * SEND_WINDOW_MS).all()
+    const due = dueReminders(partItems, new Set(sentRows.map((r) => r.id)), now)
+    if (!due.length) continue
+    const { results: devices } = await db.prepare('SELECT endpoint, p256dh, auth FROM push_devices WHERE setup = ?').bind(setup).all()
+    // Marked as sent first: a reminder is better missed than repeated every minute if sending fails.
+    await db.batch(due.map((it) => db.prepare('INSERT OR IGNORE INTO push_sent (setup, id, at) VALUES (?, ?, ?)').bind(setup, it.id, it.at)))
+    keys ??= await vapidKeys(db)
+    for (const it of due)
+      for (const d of devices) {
+        try {
+          const aud = new URL(d.endpoint).origin
+          if (!auths.has(aud)) auths.set(aud, await vapidAuthorization(d.endpoint, keys, pushSubject(env), now))
+          const ttl = Math.max(60, Math.round((SEND_WINDOW_MS - (now - it.at)) / 1000))
+          const r = await send(d.endpoint, {
+            method: 'POST',
+            headers: { Authorization: auths.get(aud), 'Content-Encoding': 'aes128gcm', 'Content-Type': 'application/octet-stream', TTL: String(ttl), Urgency: 'high' },
+            body: await encryptPush(it.blob, d.p256dh, d.auth),
+          })
+          // Gone: the device unsubscribed, or the app was removed.
+          if (r.status === 404 || r.status === 410) await db.prepare('DELETE FROM push_devices WHERE endpoint = ?').bind(d.endpoint).run()
+        } catch {
+          /* one device failing doesn't stop the others */
+        }
+      }
+  }
+  await db.batch([
+    db.prepare('DELETE FROM push_sent WHERE at < ?').bind(now - 2 * 24 * 3600_000),
+    // Nobody has opened Mail Vibes with this setup for a month: forget its reminders and devices.
+    db.prepare('DELETE FROM push_parts WHERE updated < ?').bind(now - 30 * 24 * 3600_000),
+    db.prepare('DELETE FROM push_devices WHERE updated < ?').bind(now - 90 * 24 * 3600_000),
+  ])
 }

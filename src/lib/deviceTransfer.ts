@@ -1,4 +1,4 @@
-import { getPassword, googleKey, isRemembered, setPassword, smtpKey } from '../mail/imap/passwords'
+import { getPassword, googleKey, isRemembered, PUSH_SETUP_KEY, setPassword, smtpKey } from '../mail/imap/passwords'
 import { exportSettingsJson, parseSettingsJson, type Settings } from '../settings/store'
 
 /**
@@ -120,6 +120,8 @@ export function googleSignInKeys(s: Pick<Settings, 'accounts'>) {
 
 /** Whether a transferred secret is a Google sign-in (not an IMAP password) */
 export const isGoogleSignIn = (p: TransferPassword) => p.key.endsWith('#google')
+/** Whether a transferred secret is the reminders setup (src/notify/push.ts) */
+export const isPushSetup = (p: TransferPassword) => p.key === PUSH_SETUP_KEY
 
 /** Everything this device can hand over, and the accounts whose password it doesn't know. */
 export async function collectTransfer(s: Settings): Promise<{ transfer: Transfer; missing: string[] }> {
@@ -130,9 +132,9 @@ export async function collectTransfer(s: Settings): Promise<{ transfer: Transfer
     if (password === undefined) missing.add(key.replace(/#smtp$/, ''))
     else passwords.push({ key, password, remember: await isRemembered(key) })
   }
-  for (const key of googleSignInKeys(s)) {
-    const token = await getPassword(key)
-    if (token !== undefined) passwords.push({ key, password: token, remember: true })
+  for (const key of [...googleSignInKeys(s), PUSH_SETUP_KEY]) {
+    const secret = await getPassword(key)
+    if (secret !== undefined) passwords.push({ key, password: secret, remember: true })
   }
   return {
     transfer: { at: Date.now(), settings: exportSettingsJson({ ...s, exportBridge: true }), exportBridge: s.exportBridge, passwords },
@@ -147,7 +149,7 @@ export function transferSettings(t: Transfer): Settings {
 
 /** Stores the passwords of accounts that exist in the new settings. */
 export async function storeTransferPasswords(t: Transfer, settings: Settings) {
-  const keys = new Set([...passwordKeys(settings), ...googleSignInKeys(settings)])
+  const keys = new Set([...passwordKeys(settings), ...googleSignInKeys(settings), PUSH_SETUP_KEY])
   for (const p of t.passwords) if (keys.has(p.key) && typeof p.password === 'string') await setPassword(p.key, p.password, p.remember === true)
 }
 

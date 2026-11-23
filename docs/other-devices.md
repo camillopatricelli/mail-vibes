@@ -22,6 +22,8 @@ Microsoft or your mail server.
   keeps its "remember on this device" choice.
 - **Long-lasting Google sign-ins**, if your bridge makes them
   ([Long-lasting Google sign-ins](imap-bridge.md#long-lasting-google-sign-ins-optional)).
+- The **reminders key**, if you use [reminders while Mail Vibes is closed](push-reminders.md).
+  Turn the switch on on the new device too: each device chooses whether it rings.
 
 It can't copy **Microsoft sign-ins**, or Google sign-ins that last one hour: they belong to one
 device. On the new device you sign in once to each of those accounts.
@@ -100,7 +102,8 @@ address and key in the settings file**).
   makes [long-lasting sign-ins](imap-bridge.md#long-lasting-google-sign-ins-optional), the app
   renews them by itself.
 - **Notifications** appear only while Mail Vibes is open on that device (in the background is
-  fine). They are turned on separately on each device.
+  fine), except event and task reminders sent by your bridge
+  ([push-reminders.md](push-reminders.md)). They are turned on separately on each device.
 - **IMAP rules** run on every device where Mail Vibes is open, on mail that arrives while it is
   open there.
 - **Clearing the browser's data** for the site erases the setup on that device. Copy it again

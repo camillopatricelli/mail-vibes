@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import {
   collectTransfer,
   isGoogleSignIn,
+  isPushSetup,
   newCode,
   openTransfer,
   payloadFromLink,
@@ -14,6 +15,7 @@ import {
   type Transfer,
 } from '../lib/deviceTransfer'
 import { replaceSetup } from '../auth/accounts'
+import { startPush } from '../notify/push'
 import { navigate } from '../lib/router'
 import { accountLongLabel, useSettings } from '../settings/store'
 import { useStatus } from '../status/store'
@@ -176,6 +178,7 @@ export function ReceiveTransfer({ payload }: { payload: string }) {
       const settings = transferSettings(opened)
       await replaceSetup(settings)
       await storeTransferPasswords(opened, settings)
+      void startPush() // the reminders key may have come along
       toast({ tone: 'success', message: t('transfer.applied') })
       navigate('settings')
     } catch (e) {
@@ -185,7 +188,7 @@ export function ReceiveTransfer({ payload }: { payload: string }) {
   }
 
   const googleCount = opened?.passwords.filter(isGoogleSignIn).length ?? 0
-  const imapCount = (opened?.passwords.length ?? 0) - googleCount
+  const imapCount = (opened?.passwords.filter((p) => !isGoogleSignIn(p) && !isPushSetup(p)).length ?? 0)
 
   let preview: ReturnType<typeof transferSettings> | undefined
   try {

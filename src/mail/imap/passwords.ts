@@ -114,6 +114,14 @@ export async function forgetPassword(key: string) {
 }
 
 export const smtpKey = (accountId: string) => `${accountId}#smtp`
+/** The reminders key shared by the user's devices (src/notify/push.ts) */
+export const PUSH_SETUP_KEY = 'push#setup'
+
+/** Keeps a non-extractable key for the service worker (it reads the "keys" store itself). */
+export async function putDeviceKey(name: string, key: CryptoKey) {
+  await tx(KEYS, 'readwrite', (s) => s.put(key, name))
+}
+
 /** A Google account's long-lasting sign-in (refresh token), made through the bridge */
 export const googleKey = (accountId: string) => `${accountId}#google`
 

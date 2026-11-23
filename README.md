@@ -137,7 +137,9 @@ To build Microsoft 365 organisations into your copy, set `VITE_MS_TENANTS` (see
 
 - Google sign-ins last one hour and end when the page is reloaded, unless a bridge with the
   Google client secret makes them long-lasting.
-- Notifications only arrive while the app is open in a tab or as an installed app.
+- New-mail notifications only arrive while the app is open in a tab or as an installed app.
+  Event and task reminders can also arrive while it is closed, sent by your bridge
+  ([docs/push-reminders.md](docs/push-reminders.md)).
 - Microsoft 365 needs an app registration in each organisation, and its administrator may need to
   approve it.
 - IMAP mailboxes need a bridge you deploy yourself, have mail only (no calendar, tasks or

@@ -133,7 +133,7 @@ describe('Google token endpoint', () => {
       w.default
         .fetch(new Request('https://bridge.example.com/check', { headers: { Origin: 'https://app.example.com', Authorization: `Bearer ${env.ACCESS_KEY}` } }), e)
         .then((r: Response) => r.text())
-    expect(await check(env)).toBe('ok 2 google')
-    expect(await check({ ...env, GOOGLE_CLIENT_SECRET: '' })).toBe('ok 2')
+    expect(await check(env)).toBe('ok 3 google')
+    expect(await check({ ...env, GOOGLE_CLIENT_SECRET: '' })).toBe('ok 3')
   })
 })

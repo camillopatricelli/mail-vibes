@@ -8,7 +8,8 @@ talks to your mail server.
 
 You only need the bridge if you want to add an IMAP mailbox. Google and Microsoft 365 mail
 never goes through it. Optionally, the bridge can also keep your Google sign-ins going, so Google
-stops asking you to sign in every hour (see [Long-lasting Google sign-ins](#long-lasting-google-sign-ins-optional)).
+stops asking you to sign in every hour (see [Long-lasting Google sign-ins](#long-lasting-google-sign-ins-optional)),
+and send event and task reminders while Mail Vibes is closed (see [push-reminders.md](push-reminders.md)).
 
 ## What the bridge does, and doesn't do
 

@@ -6,6 +6,7 @@ import { useSettings } from '../../settings/store'
 import { Button } from '../../ui/components'
 import { Dialog, Spinner } from '../../ui/overlay'
 import { googleConfigured, preloadGoogle } from '../../auth/google'
+import { checkPushBridge } from '../../notify/push'
 import { BRIDGE_VERSION, BridgeError, bridgeFeatures, normalizeBridgeUrl, type BridgeConfig } from './bridge'
 import { MailServerError } from './client'
 import { emptyServer, filled, ServerFields, toServer } from './ServerFields'
@@ -64,10 +65,12 @@ export function BridgeSettings({ Field }: { Field: FieldComp }) {
     if (!b) return
     setStatus({ tone: 'busy', text: t('imap.checking') })
     try {
-      const { version, google } = await bridgeFeatures(b)
+      const { version, google, push } = await bridgeFeatures(b)
       const googleNote = googleConfigured() ? ` ${google ? t('imap.bridgeGoogle') : t('imap.bridgeNoGoogle')}` : ''
-      setStatus(version >= BRIDGE_VERSION ? { tone: 'ok', text: t('imap.bridgeOk') + googleNote } : { tone: 'error', text: t('imap.bridgeOld') })
+      const pushNote = ` ${push ? t('imap.bridgePush') : t('imap.bridgeNoPush')}`
+      setStatus(version >= BRIDGE_VERSION ? { tone: 'ok', text: t('imap.bridgeOk') + googleNote + pushNote } : { tone: 'error', text: t('imap.bridgeOld') })
       preloadGoogle(true)
+      void checkPushBridge()
     } catch (e) {
       setStatus({ tone: 'error', text: connectionErrorText(e) })
     }

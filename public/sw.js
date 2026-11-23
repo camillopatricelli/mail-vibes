@@ -1,6 +1,6 @@
 /*
  * Mail Vibes service worker. It makes the app installable, lets it start without a network
- * connection, and handles clicks on notifications.
+ * connection, handles clicks on notifications, and shows reminders pushed by the bridge.
  *
  * Only the app's own files are cached (code, styles, fonts, icons). Requests to Google and
  * Microsoft are never touched, so no mail, events, tasks or contacts are stored on the device.
@@ -75,5 +75,60 @@ self.addEventListener('notificationclick', (event) => {
       }
       return self.clients.openWindow(SCOPE + (data.hash || ''))
     }),
+  )
+})
+
+// ---------- Reminders sent by the bridge (src/notify/push.ts) ----------
+// The bridge forwards reminders it can't read; they are decrypted here with the key the app
+// keeps for this purpose (a key the browser can use but never hands out).
+
+function openSecrets() {
+  return new Promise((resolve, reject) => {
+    // Same database and version as src/mail/imap/passwords.ts (created the same way if missing).
+    const r = indexedDB.open('mail-vibes-secrets', 1)
+    r.onupgradeneeded = () => {
+      r.result.createObjectStore('keys')
+      r.result.createObjectStore('secrets')
+    }
+    r.onsuccess = () => resolve(r.result)
+    r.onerror = () => reject(r.error)
+  })
+}
+
+async function reminderKey() {
+  const db = await openSecrets()
+  try {
+    return await new Promise((resolve, reject) => {
+      const q = db.transaction('keys').objectStore('keys').get('push')
+      q.onsuccess = () => resolve(q.result)
+      q.onerror = () => reject(q.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+async function openReminder(blob) {
+  const b64 = blob.replace(/-/g, '+').replace(/_/g, '/')
+  const bytes = Uint8Array.from(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)), (c) => c.charCodeAt(0))
+  const key = await reminderKey()
+  if (!key) throw new Error('no key')
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(0, 12) }, key, bytes.slice(12))
+  return JSON.parse(new TextDecoder().decode(plain))
+}
+
+self.addEventListener('push', (event) => {
+  event.waitUntil(
+    (async () => {
+      let n
+      try {
+        n = await openReminder(event.data ? event.data.text() : '')
+      } catch {
+        n = { t: 'Mail Vibes', b: '' } // a notification must be shown; this one can't be read here
+      }
+      const options = { body: n.b || '', tag: n.g, icon: SCOPE + 'icon-192.png', badge: SCOPE + 'badge-96.png', data: { hash: n.h || '', url: n.j } }
+      if (n.j) options.actions = [{ action: 'join', title: n.jl || 'Join' }]
+      await self.registration.showNotification(n.t || 'Mail Vibes', options)
+    })(),
   )
 })

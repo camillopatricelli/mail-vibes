@@ -90,6 +90,7 @@ async function start() {
     g.preloadGoogle()
     void g.finishGoogleRedirect()
   })
+  void import('./notify/push').then((p) => p.startPush())
 }
 
 void start()

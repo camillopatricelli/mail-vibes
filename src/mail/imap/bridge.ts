@@ -65,6 +65,8 @@ export interface BridgeFeatures {
   version: number
   /** GOOGLE_CLIENT_SECRET is set (POST /google/token works) */
   google: boolean
+  /** A database is bound: it can send reminders by push (/push/...) */
+  push: boolean
 }
 
 /** Checks the bridge address, the page's origin and the access key; answers what the bridge offers. */
@@ -81,7 +83,8 @@ export async function bridgeFeatures(cfg: BridgeConfig): Promise<BridgeFeatures>
   if (r.status === 401) throw new BridgeError('key', 'key')
   if (!r.ok) throw new BridgeError('refused', await r.text())
   const m = /^ok (\d+)(.*)$/.exec(await r.text())
-  return { version: Number(m?.[1] ?? 0), google: /\bgoogle\b/.test(m?.[2] ?? '') }
+  const flags = m?.[2] ?? ''
+  return { version: Number(m?.[1] ?? 0), google: /\bgoogle\b/.test(flags), push: /\bpush\b/.test(flags) }
 }
 
 /** Checks the bridge address, the page's origin and the access key; answers the bridge's version. */
