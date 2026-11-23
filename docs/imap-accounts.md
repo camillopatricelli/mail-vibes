@@ -39,7 +39,11 @@ can delete at any time without changing your main password.
 | AOL Mail | login.aol.com → **Account security** → **Generate app password** | `imap.aol.com`, 993, SSL/TLS | `smtp.aol.com`, 465, SSL/TLS |
 | iCloud Mail | account.apple.com → **Sign-In and Security** → **App-Specific Passwords** | `imap.mail.me.com`, 993, SSL/TLS | `smtp.mail.me.com`, 587, STARTTLS |
 
-- The user name is the full email address. For iCloud, it is the part before `@`.
+- The user name is the full email address. **iCloud** is the exception: for the incoming server
+  it is the part before `@` (if that is refused, try the full address), and for the outgoing
+  server the full address. Enter the outgoing user name separately in the account's
+  **Outgoing (SMTP)** settings.
+- iCloud Mail must be turned on in your iCloud settings, with an `@icloud.com` address.
 - If the provider doesn't offer app passwords, turn on **two-step verification** in the same
   security page first: the option often appears only after that.
 - Copy the app password exactly as shown (spaces don't matter) and paste it as the password in
