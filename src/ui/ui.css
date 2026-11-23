@@ -325,6 +325,12 @@
   border: 1px solid var(--md-sys-color-outline);
   background: var(--md-sys-color-surface);
 }
+/* The open list: its own colours, since a transparent select leaves the browser's white behind light text. */
+select option,
+select optgroup {
+  background-color: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+}
 .color-picker { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .swatch {
   width: 24px;
