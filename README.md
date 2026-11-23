@@ -30,7 +30,8 @@ policies. If your organisation uses it, its administrators decide whether to all
   message they are about, and they can be forwarded as normal email from another account. See
   [docs/imap-accounts.md](docs/imap-accounts.md).
 - **Today:** the day's events, tasks that are due or overdue, and unread mail at a glance.
-- **Mail:** inbox, folders and Gmail labels; threads; reply, forward, drafts and attachments
+- **Mail:** inbox, folders and Gmail labels (new ones can be created from the side menu, or while
+  moving a message); threads; reply, forward, drafts and attachments
   (PDFs and images open in the app); snooze and send later; tags (Gmail labels and Outlook
   categories); recipient suggestions from your contacts.
 - **Mail rules:** mark as read, archive, move or delete new messages by sender or by words they

@@ -419,6 +419,12 @@ export const outlook: MailProvider = {
     return out
   },
 
+  async createFolder(accountId, name, parentId) {
+    const url = parentId ? `/me/mailFolders/${encodeURIComponent(parentId)}/childFolders` : '/me/mailFolders'
+    const f = await graph<{ id: string }>(accountId, url, { method: 'POST', body: { displayName: name } })
+    return f.id
+  },
+
   async unreadCount(accountId, folder) {
     if (folder === 'starred') return 0
     if (folder === 'snoozed' || folder === 'scheduled') return 0

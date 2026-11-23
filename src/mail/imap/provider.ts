@@ -960,6 +960,21 @@ export const imap: MailProvider = {
     })
   },
 
+  async createFolder(accountId, name, parentId) {
+    return session(accountId).run(async (ctx) => {
+      const { list } = await ctx.folders(true)
+      const ns = namespaceOf(list)
+      if (parentId && !ns) throw new Error(i18n.t('imap.noHierarchy'))
+      if (ns && name.includes(ns.delimiter)) throw new Error(i18n.t('mail.newFolderBadChar', { char: ns.delimiter }))
+      const path = (parentId ? folderPath(parentId) + ns!.delimiter : (ns?.prefix ?? '')) + encodeMailboxName(name)
+      if (list.some((f) => f.path === path)) throw new Error(i18n.t('mail.newFolderExists'))
+      await ctx.client.run(['CREATE ', { str: path }])
+      await ctx.client.run(['SUBSCRIBE ', { str: path }]).catch(() => undefined)
+      ctx.forgetFolders()
+      return folderId(path)
+    })
+  },
+
   async tags(accountId) {
     return session(accountId).run(async (ctx) => {
       const box = await ctx.select('INBOX', true)

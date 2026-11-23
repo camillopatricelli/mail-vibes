@@ -133,6 +133,8 @@ export interface MailProvider {
   unsnooze(accountId: string, ids: string[]): Promise<void>
   /** The user's own folders (well-known/system folders excluded), with unread counts */
   folders(accountId: string): Promise<MailFolder[]>
+  /** Creates one of the user's own folders (Gmail: a label), inside `parentId` if given; answers its id */
+  createFolder(accountId: string, name: string, parentId?: string): Promise<string>
   /** The account's tags (Gmail user labels, Outlook categories) */
   tags(accountId: string): Promise<MailTag[]>
   /** Adds and removes tags by name (creating missing ones); `messages` carry their current tags */

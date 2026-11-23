@@ -23,6 +23,7 @@ import { MessageBody } from './MessageBody'
 import { SnoozeDialog } from './SnoozeDialog'
 import { goMail, isMixed, mailHref, parseMailParams, sameView, uiFolder, viewTarget, type MailView, type UiFolder } from './routes'
 import { folderKinds, type FolderKind, type ListTarget, type MailMessage, type MailSummary } from './types'
+import { NewFolderDialog, NewFolderForm } from './NewFolder'
 
 const folderIcons: Record<FolderKind, IconName> = {
   inbox: 'inbox',
@@ -94,6 +95,7 @@ function FolderNav({ view }: { view: MailView }) {
   const accountFolders = useAllFolders().filter((x) => x.account.provider !== 'google')
   const tags = useAllTags()
   const { collapsed, set: setCollapsed, toggle } = useNavCollapsed()
+  const [newFolderFor, setNewFolderFor] = useState<string>()
   const groups = [...(tags.length ? ['tags'] : []), ...(accountFolders.length ? ['folders', ...accountFolders.map((x) => x.account.id)] : [])]
   const allFolded = groups.length > 0 && groups.every((k) => collapsed.has(k))
   const foldAll = groups.length > 1 && (
@@ -151,21 +153,25 @@ function FolderNav({ view }: { view: MailView }) {
       {accountFolders.length > 0 && (
         <NavSection title={t('mail.myFolders')} open={foldersOpen} onToggle={() => toggle('folders')} extra={!tags.length && foldAll} />
       )}
+      {newFolderFor && <NewFolderDialog accountId={newFolderFor} onClose={() => setNewFolderFor(undefined)} />}
       {foldersOpen && accountFolders.map(({ account, folders, error, isPending }) => {
         const open = !collapsed.has(account.id)
         return (
           <div key={account.id} className="mail-nav__account">
-            <button
-              type="button"
-              className="mail-nav__account-head"
-              aria-expanded={open}
-              title={open ? t('mail.hideFolders', { account: account.email }) : t('mail.showFolders', { account: account.email })}
-              onClick={() => toggle(account.id)}
-            >
-              <Icon name={open ? 'keyboard_arrow_down' : 'chevron_right'} size={20} />
-              <span className="chip__dot" style={{ background: account.color }} />
-              <span className="label-large mail-nav__account-name">{accountLabel(account)}</span>
-            </button>
+            <div className="mail-nav__account-row">
+              <button
+                type="button"
+                className="mail-nav__account-head"
+                aria-expanded={open}
+                title={open ? t('mail.hideFolders', { account: account.email }) : t('mail.showFolders', { account: account.email })}
+                onClick={() => toggle(account.id)}
+              >
+                <Icon name={open ? 'keyboard_arrow_down' : 'chevron_right'} size={20} />
+                <span className="chip__dot" style={{ background: account.color }} />
+                <span className="label-large mail-nav__account-name">{accountLabel(account)}</span>
+              </button>
+              <IconButton icon="create_new_folder" label={t('mail.newFolderIn', { account: accountLabel(account) })} onClick={() => setNewFolderFor(account.id)} />
+            </div>
             {open &&
               (isPending ? (
                 <Spinner size={18} label={t('mail.loading')} />
@@ -462,6 +468,10 @@ function MoveDialog({
   const single = accountIds.length === 1 ? accountIds[0] : undefined
   const folders = useFolders(open ? single : undefined)
   const standard: FolderKind[] = ['inbox', 'archive']
+  const [creating, setCreating] = useState(false)
+  useEffect(() => {
+    if (!open) setCreating(false)
+  }, [open])
   return (
     <Dialog open={open} onClose={onClose} title={t('mail.moveTo')}>
       {!single ? (
@@ -494,6 +504,16 @@ function MoveDialog({
               </li>
             ))
           )}
+          <li>
+            {creating ? (
+              <NewFolderForm accountId={single} onCreated={(id, name) => onPick({ folderId: id }, name)} onCancel={() => setCreating(false)} submitLabel={t('mail.newFolderAndMove')} />
+            ) : (
+              <button type="button" onClick={() => setCreating(true)}>
+                <Icon name="create_new_folder" size={20} />
+                <span className="body-large">{t('mail.newFolder')}</span>
+              </button>
+            )}
+          </li>
         </ul>
       )}
     </Dialog>

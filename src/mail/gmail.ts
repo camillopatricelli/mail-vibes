@@ -649,6 +649,16 @@ export const gmail: MailProvider = {
     })
   },
 
+  async createFolder(accountId, name, parentId) {
+    // Gmail nests labels by name: "Parent/Child".
+    const parent = parentId ? (await google<GLabel>(accountId, `${API}/labels/${parentId}?fields=name`)).name : undefined
+    const l = await google<GLabel>(accountId, `${API}/labels`, {
+      method: 'POST',
+      body: { name: parent ? `${parent}/${name}` : name, labelListVisibility: 'labelShow', messageListVisibility: 'show' },
+    })
+    return l.id
+  },
+
   async unreadCount(accountId, folder) {
     const label = { inbox: 'INBOX', spam: 'SPAM', trash: 'TRASH', drafts: 'DRAFT', sent: 'SENT' }[folder as string]
     if (!label) return 0

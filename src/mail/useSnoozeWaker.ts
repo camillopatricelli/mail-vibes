@@ -73,6 +73,8 @@ export function useSnoozeWaker() {
  * Sends scheduled messages of providers that don't do it themselves (Gmail) when their time
  * comes, while the app is open; late ones go out at the first look.
  */
+const RETRY_MS = 5 * 60_000
+
 function useScheduledSender() {
   const { t } = useTranslation()
   const accounts = useSettings((s) => s.accounts).filter((a) => isMailCapable(a.id) && !providerFor(a.id).sendsScheduledItself)
@@ -88,6 +90,8 @@ function useScheduledSender() {
   const sending = useRef(new Set<string>())
   // Sent ones are skipped until the list catches up (the draft is gone by then).
   const sent = useRef(new Set<string>())
+  // Failed ones wait a while before the next try, and the failure is told once.
+  const failed = useRef(new Map<string, number>())
   const [tick, setTick] = useState(0)
   const stamp = results.map((r) => r.dataUpdatedAt).join(',')
 
@@ -100,7 +104,9 @@ function useScheduledSender() {
         if (m.scheduledAt === undefined) continue
         const key = `${m.accountId}|${m.id}`
         if (m.scheduledAt <= now) {
-          if (!sending.current.has(key) && !sent.current.has(key)) due.push(m)
+          const retryAt = (failed.current.get(key) ?? 0) + RETRY_MS
+          if (!sending.current.has(key) && !sent.current.has(key) && retryAt <= now) due.push(m)
+          else if (failed.current.has(key)) next = Math.min(next, retryAt)
         } else next = Math.min(next, m.scheduledAt)
       }
     if (due.length) {
@@ -112,8 +118,12 @@ function useScheduledSender() {
             await providerFor(m.accountId).sendScheduled(m.accountId, m.id)
             count++
             sent.current.add(`${m.accountId}|${m.id}`)
+            failed.current.delete(`${m.accountId}|${m.id}`)
           } catch (e) {
-            useStatus.getState().toast({ tone: 'error', message: t('compose.scheduledFailed', { subject: m.subject || t('mail.noSubject'), reason: (e as Error).message }) })
+            const key = `${m.accountId}|${m.id}`
+            if (!failed.current.has(key))
+              useStatus.getState().toast({ tone: 'error', message: t('compose.scheduledFailed', { subject: m.subject || t('mail.noSubject'), reason: (e as Error).message }) })
+            failed.current.set(key, Date.now())
           } finally {
             sending.current.delete(`${m.accountId}|${m.id}`)
           }

@@ -86,6 +86,7 @@ IMAP is older and simpler than Gmail and Outlook, so a few features work differe
 | Sending later | Mail Vibes sends the message itself when the time comes, **only while it is open** on one of your devices; otherwise as soon as you open it. |
 | Mail rules | IMAP servers have no rules Mail Vibes can use, so the app keeps them in its settings and applies them to **new Inbox mail, only while it is open**. Mail that arrived while it was closed is handled when you open it. Mail you move back to the Inbox (or that comes back from snooze) is left alone. |
 | Notifications, unread counts | Checked every minute or so while the app is open (Settings → **Check for new items every**). |
+| New folders | Created on the server (side menu → the folder button next to the account, or **Move to → New folder**). A name can't contain the server's folder separator, usually `.` or `/`. |
 | Delete forever | Available, as for Microsoft 365 accounts. |
 | Full mailbox | If the server reports its storage, Mail Vibes warns when the mailbox is 90% full. |
 
