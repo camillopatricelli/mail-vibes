@@ -1,4 +1,5 @@
 import { graph, ApiError, type GraphPage } from '../providers/graph'
+import { uploadGraphFile } from '../providers/graphFiles'
 import { AuthRequiredError } from '../auth/errors'
 import { MAILBOX_SCOPES } from '../auth/msal'
 import type {
@@ -206,15 +207,6 @@ async function batch(accountId: string, requests: { method: string; url: string;
     )
   }
   return bodies
-}
-
-function fileToBase64(file: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader()
-    r.onload = () => resolve(String(r.result).split(',')[1] ?? '')
-    r.onerror = () => reject(r.error)
-    r.readAsDataURL(file)
-  })
 }
 
 /** Outlook's category colour presets (approximately as Outlook shows them). */
@@ -506,41 +498,7 @@ export const outlook: MailProvider = {
   },
 
   async addAttachment(accountId, draftId, file, onProgress) {
-    const SMALL = 3 * 1024 * 1024
-    if (file.size < SMALL) {
-      await graph(accountId, `/me/messages/${draftId}/attachments`, {
-        method: 'POST',
-        body: {
-          '@odata.type': '#microsoft.graph.fileAttachment',
-          name: file.name,
-          contentType: file.type || 'application/octet-stream',
-          contentBytes: await fileToBase64(file),
-        },
-      })
-      onProgress?.(1)
-    } else {
-      const session = await graph<{ uploadUrl: string }>(accountId, `/me/messages/${draftId}/attachments/createUploadSession`, {
-        method: 'POST',
-        body: { AttachmentItem: { attachmentType: 'file', name: file.name, size: file.size, contentType: file.type || undefined } },
-      })
-      const CHUNK = 320 * 1024 * 12 // ~3.75 MB, a multiple of 320 KiB as Graph requires
-      for (let start = 0; start < file.size; start += CHUNK) {
-        const end = Math.min(start + CHUNK, file.size)
-        let res: Response
-        try {
-          // The upload URL is pre-authenticated: no Authorization header.
-          res = await fetch(session.uploadUrl, {
-            method: 'PUT',
-            headers: { 'Content-Range': `bytes ${start}-${end - 1}/${file.size}` },
-            body: file.slice(start, end),
-          })
-        } catch {
-          throw new ApiError(i18n.t('errors.uploadNetwork'), 0)
-        }
-        if (!res.ok) throw new ApiError(i18n.t('errors.uploadFailed', { status: res.status }), res.status)
-        onProgress?.(end / file.size)
-      }
-    }
+    await uploadGraphFile(accountId, `/me/messages/${draftId}/attachments`, file, 'outlook', onProgress)
     return outlook.attachments(accountId, draftId)
   },
 

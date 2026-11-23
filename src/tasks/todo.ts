@@ -1,6 +1,7 @@
 import { startOfDay, toDateKey, toTimeKey } from '../calendar/dates'
 import { fromGraph, toGraph, type GraphRecurrence } from '../lib/recurrence'
 import { ApiError, graph, type GraphPage } from '../providers/graph'
+import { graphFileStore } from '../providers/graphFiles'
 import { findMailUrl, linkOf, mailNoteLine, parseMailUrl, type MailLink } from './mailLink'
 import { COMPLETED_DAYS, type Task, type TaskDraft, type TaskList, type TaskProvider } from './types'
 
@@ -25,6 +26,7 @@ interface GTask {
   createdDateTime?: string
   lastModifiedDateTime?: string
   linkedResources?: { webUrl?: string; applicationName?: string; displayName?: string; externalId?: string }[]
+  hasAttachments?: boolean
 }
 
 const utc = (dt: GDateTime | undefined) =>
@@ -70,6 +72,7 @@ function toTask(accountId: string, listId: string, t: GTask): Task {
     position: t.createdDateTime ?? '',
     updatedAt: Date.parse(t.lastModifiedDateTime ?? '') || 0,
     mail: mailOf(t, notes),
+    hasFiles: !!t.hasAttachments,
   }
 }
 
@@ -211,5 +214,10 @@ export const todo: TaskProvider = {
 
   async remove(accountId, listId, taskId) {
     await graph(accountId, `${tasksUrl(listId)}/${encodeURIComponent(taskId)}`, { method: 'DELETE' })
+  },
+
+  files(accountId, listId, taskId) {
+    // To Do takes files up to 25 MB.
+    return graphFileStore(accountId, `${tasksUrl(listId)}/${encodeURIComponent(taskId)}/attachments`, 'todo', 25 * 1024 * 1024)
   },
 }

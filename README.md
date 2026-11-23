@@ -40,9 +40,11 @@ policies. If your organisation uses it, its administrators decide whether to all
   it is open.
 - **Calendar:** day, week, month and agenda views; create and edit events with guests, a
   location (with optional Google Maps suggestions), Google Meet or Teams links, repeat rules
-  and several reminders, including days ahead.
+  and several reminders, including days ahead. Files can be attached to Microsoft 365 events, and
+  links to Google Drive files to Google events.
 - **Tasks:** Google Tasks and Microsoft To Do, with start and due dates, a reminder and a repeat
-  rule.
+  rule. To Do tasks can have files attached (up to 25 MB each); Google tasks get links to files in
+  their notes, since Google Tasks has no attachments.
 - **Search** across mail, events and tasks.
 - **Notifications** for new mail, event reminders and task reminders while the app is open.
 - **Installable** as an app on computers and phones (PWA), with light and dark themes.

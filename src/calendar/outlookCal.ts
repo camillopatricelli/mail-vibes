@@ -1,6 +1,7 @@
 import { ONLINE_MEETING_SCOPES } from '../auth/msal'
 import { fromGraph, toGraph, type GraphRecurrence } from '../lib/recurrence'
 import { graph, type GraphPage } from '../providers/graph'
+import { graphFileStore } from '../providers/graphFiles'
 import { addDays, localDate, startOfDay, toDateKey, toTimeKey } from './dates'
 import { findMeetingLink, type CalEvent, type CalendarInfo, type CalendarProvider, type EventDraft, type Response } from './types'
 import i18n from '../i18n'
@@ -33,10 +34,11 @@ interface GEvent {
   webLink?: string
   isReminderOn?: boolean
   reminderMinutesBeforeStart?: number
+  hasAttachments?: boolean
 }
 
 const FIELDS =
-  'id,subject,start,end,isAllDay,location,body,organizer,isOrganizer,attendees,responseStatus,onlineMeeting,isOnlineMeeting,seriesMasterId,isCancelled,webLink,isReminderOn,reminderMinutesBeforeStart'
+  'id,subject,start,end,isAllDay,location,body,organizer,isOrganizer,attendees,responseStatus,onlineMeeting,isOnlineMeeting,seriesMasterId,isCancelled,webLink,isReminderOn,reminderMinutesBeforeStart,hasAttachments'
 const PREFER = { Prefer: 'outlook.timezone="UTC", outlook.body-content-type="html"' }
 
 // Outlook's named calendar colours (used when a calendar has no explicit hex colour).
@@ -108,6 +110,7 @@ function toEvent(accountId: string, calendarId: string, e: GEvent): CalEvent {
     cancelled: !!e.isCancelled,
     webLink: e.webLink,
     reminders: e.isReminderOn && typeof e.reminderMinutesBeforeStart === 'number' ? [e.reminderMinutesBeforeStart] : [],
+    hasFiles: !!e.hasAttachments,
   }
 }
 
@@ -216,7 +219,8 @@ export const outlookCalendar: CalendarProvider = {
   },
 
   async create(accountId, calendarId, draft) {
-    await graph(accountId, `/me/calendars/${encodeURIComponent(calendarId)}/events`, { method: 'POST', body: body(draft) })
+    const e = await graph<{ id: string }>(accountId, `/me/calendars/${encodeURIComponent(calendarId)}/events`, { method: 'POST', body: body(draft) })
+    return e.id
   },
 
   async update(accountId, _calendarId, eventId, draft) {
@@ -273,6 +277,11 @@ export const outlookCalendar: CalendarProvider = {
     const url = m.joinWebUrl ?? m.joinUrl
     if (!url) throw new Error(i18n.t('errors.teamsLink'))
     return url
+  },
+
+  files(accountId, _calendarId, eventId) {
+    // Larger files go through an upload session, which takes up to 150 MB.
+    return graphFileStore(accountId, `/me/events/${encodeURIComponent(eventId)}/attachments`, 'outlook', 150 * 1024 * 1024)
   },
 }
 

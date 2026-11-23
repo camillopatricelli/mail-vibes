@@ -1,6 +1,7 @@
 /** Provider-neutral task model. Google Tasks and Microsoft To Do adapters map to these types. */
 
 import type { Recurrence } from '../lib/recurrence'
+import type { FileStore } from '../providers/graphFiles'
 import type { MailLink, MailSource } from './mailLink'
 
 export interface TaskList {
@@ -38,6 +39,8 @@ export interface Task {
   webLink?: string
   /** The email the task was created from */
   mail?: MailLink
+  /** To Do: the task has files attached (listed through the provider's `files`) */
+  hasFiles?: boolean
 }
 
 export interface TaskDraft {
@@ -63,6 +66,8 @@ export interface TaskProvider {
   update(accountId: string, listId: string, taskId: string, draft: Partial<TaskDraft>): Promise<void>
   setCompleted(accountId: string, listId: string, taskId: string, completed: boolean): Promise<void>
   remove(accountId: string, listId: string, taskId: string): Promise<void>
+  /** To Do: files attached to a task (Google Tasks has none) */
+  files?(accountId: string, listId: string, taskId: string): FileStore
 }
 
 /** Completed tasks older than this are not loaded. */

@@ -1,5 +1,6 @@
 import type { Recurrence } from '../lib/recurrence'
 import type { Address } from '../mail/types'
+import type { FileStore } from '../providers/graphFiles'
 
 /** Provider-neutral calendar model. Outlook (Graph) and Google Calendar adapters map to these. */
 
@@ -52,6 +53,20 @@ export interface CalEvent {
   remindersDefault?: boolean
   /** Google: reminders sent by email (kept when the pop-up ones are edited) */
   emailReminders?: number[]
+  /** Microsoft: the event has files attached (listed through the provider's `files`) */
+  hasFiles?: boolean
+  /** Google: attached Drive files, as links */
+  links?: EventLink[]
+}
+
+/** A link to a file (Google Calendar attachments are Google Drive links). */
+export interface EventLink {
+  url: string
+  title: string
+  /** Kept as Google gave them, so editing other links leaves these alone */
+  fileId?: string
+  mimeType?: string
+  iconLink?: string
 }
 
 /** A recurring series as a whole (its first occurrence and its rule). */
@@ -86,6 +101,8 @@ export interface EventDraft {
   externalMeeting?: { url: string; provider: MeetingProvider }
   /** Ask the event's own provider to add Teams (Microsoft) or Meet (Google) */
   nativeMeeting?: boolean
+  /** Google: the whole list of attached links. On update: only sent when changed. */
+  links?: EventLink[]
 }
 
 export interface CalendarProvider {
@@ -97,7 +114,8 @@ export interface CalendarProvider {
   events(accountId: string, calendarId: string, from: number, to: number): Promise<CalEvent[]>
   /** Events between `from` and `to` whose title, place or description contain the text */
   search(accountId: string, calendarId: string, text: string, from: number, to: number): Promise<CalEvent[]>
-  create(accountId: string, calendarId: string, draft: EventDraft): Promise<void>
+  /** Answers the new event's id */
+  create(accountId: string, calendarId: string, draft: EventDraft): Promise<string>
   /** Updates one event (for a recurring series: only this occurrence) */
   update(accountId: string, calendarId: string, eventId: string, draft: Partial<EventDraft>): Promise<void>
   remove(accountId: string, calendarId: string, eventId: string): Promise<void>
@@ -108,6 +126,10 @@ export interface CalendarProvider {
   respond(accountId: string, calendarId: string, event: CalEvent, response: 'accepted' | 'tentative' | 'declined'): Promise<void>
   /** Creates a stand-alone meeting link in this account (for an event in another account) */
   createMeetingLink(accountId: string, title: string, start: number, end: number): Promise<string>
+  /** Microsoft: files attached to an event. Google attaches links instead (`supportsLinks`). */
+  files?(accountId: string, calendarId: string, eventId: string): FileStore
+  /** Google: Drive files can be attached as links */
+  readonly supportsLinks?: boolean
 }
 
 const MEETING_PATTERNS: [MeetingProvider, RegExp][] = [

@@ -97,8 +97,14 @@ const toast = (message: string, tone: 'success' | 'error' = 'success') => useSta
 /** Calendar actions. They resolve only once the provider confirmed, and re-throw errors. */
 export const calendarActions = {
   async create(accountId: string, calendarId: string, draft: EventDraft) {
-    await calendarFor(accountId).create(accountId, calendarId, draft)
+    const id = await calendarFor(accountId).create(accountId, calendarId, draft)
     toast(i18n.t('calendar.created'))
+    void refreshAccount(accountId)
+    return id
+  },
+  /** After files were added to or removed from an event (with a toast when nothing else was saved). */
+  filesSaved(accountId: string, toastToo: boolean) {
+    if (toastToo) toast(i18n.t('calendar.saved'))
     void refreshAccount(accountId)
   },
   /** Updates one occurrence, or the whole series when `wholeSeries` is set. */

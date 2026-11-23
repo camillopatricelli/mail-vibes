@@ -2,7 +2,7 @@ import { google } from '../providers/google'
 import { parseRRule, toRRule } from '../lib/recurrence'
 import { addDays, localDate, startOfDay, toDateKey } from './dates'
 import { textToHtml } from './outlookCal'
-import { findMeetingLink, type CalEvent, type CalendarInfo, type CalendarProvider, type EventDraft, type Response } from './types'
+import { findMeetingLink, type CalEvent, type CalendarInfo, type CalendarProvider, type EventDraft, type EventLink, type Response } from './types'
 import i18n from '../i18n'
 
 /** Google Calendar via the Calendar REST API (and the Meet REST API for stand-alone Meet links). */
@@ -39,6 +39,7 @@ interface GEvent {
   htmlLink?: string
   eventType?: string
   reminders?: { useDefault?: boolean; overrides?: GReminder[] }
+  attachments?: { fileUrl?: string; title?: string; fileId?: string; mimeType?: string; iconLink?: string }[]
 }
 interface GReminder {
   method?: string
@@ -95,6 +96,9 @@ function toEvent(accountId: string, calendarId: string, e: GEvent): CalEvent {
     remindersDefault: e.reminders?.useDefault !== false,
     reminders: e.reminders?.useDefault === false ? minutesOf(e.reminders.overrides, 'popup') : [],
     emailReminders: e.reminders?.useDefault === false ? minutesOf(e.reminders.overrides, 'email') : [],
+    links: (e.attachments ?? [])
+      .filter((a) => a.fileUrl)
+      .map((a): EventLink => ({ url: a.fileUrl!, title: a.title || a.fileUrl!, fileId: a.fileId, mimeType: a.mimeType, iconLink: a.iconLink })),
   }
 }
 
@@ -135,6 +139,8 @@ function body(d: Partial<EventDraft>, existing = false) {
     out.conferenceData = { createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: 'hangoutsMeet' } } }
   const rec = recurrence(d, existing)
   if (rec) out.recurrence = rec
+  if (d.links !== undefined)
+    out.attachments = d.links.map((l) => ({ fileUrl: l.url, title: l.title, fileId: l.fileId, mimeType: l.mimeType, iconLink: l.iconLink }))
   if (d.reminders !== undefined)
     out.reminders = {
       useDefault: false,
@@ -146,6 +152,7 @@ function body(d: Partial<EventDraft>, existing = false) {
 const cal = (id: string) => `${API}/calendars/${encodeURIComponent(id)}`
 
 export const googleCalendar: CalendarProvider = {
+  supportsLinks: true,
   maxReminders: 5,
   maxReminderMinutes: 40320,
 
@@ -202,7 +209,11 @@ export const googleCalendar: CalendarProvider = {
   },
 
   async create(accountId, calendarId, draft) {
-    await google(accountId, `${cal(calendarId)}/events?sendUpdates=all&conferenceDataVersion=1`, { method: 'POST', body: body(draft) })
+    const e = await google<{ id: string }>(accountId, `${cal(calendarId)}/events?sendUpdates=all&conferenceDataVersion=1&supportsAttachments=true`, {
+      method: 'POST',
+      body: body(draft),
+    })
+    return e.id
   },
 
   async update(accountId, calendarId, eventId, draft) {
@@ -213,7 +224,7 @@ export const googleCalendar: CalendarProvider = {
       const cur = await google<{ recurrence?: string[] }>(accountId, `${url}?fields=recurrence`)
       out.recurrence = [...(out.recurrence as string[]), ...(cur.recurrence ?? []).filter((r) => !/^RRULE:/i.test(r))]
     }
-    await google(accountId, `${url}?sendUpdates=all&conferenceDataVersion=1`, { method: 'PATCH', body: out })
+    await google(accountId, `${url}?sendUpdates=all&conferenceDataVersion=1&supportsAttachments=true`, { method: 'PATCH', body: out })
   },
 
   async remove(accountId, calendarId, eventId) {

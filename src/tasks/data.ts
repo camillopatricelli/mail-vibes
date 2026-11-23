@@ -152,6 +152,12 @@ export const taskActions = {
     void refresh(t)
   },
 
+  /** After files were added to or removed from a task (with a toast when nothing else was saved). */
+  filesSaved(t: Task, toastToo: boolean) {
+    if (toastToo) toast({ tone: 'success', message: i18n.t('tasks.saved') })
+    void refresh(t)
+  },
+
   async remove(t: Task, quiet = false) {
     await tasksFor(t.accountId).remove(t.accountId, t.listId, t.id)
     patch(t, (list) => list.filter((x) => x.id !== t.id && x.parentId !== t.id))

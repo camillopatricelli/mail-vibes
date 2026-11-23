@@ -7,10 +7,11 @@ import { Dialog, Spinner } from '../ui/overlay'
 import { providerFor } from './api'
 import type { Attachment } from './types'
 
-const isPdf = (a: Attachment) => a.contentType === 'application/pdf' || /\.pdf$/i.test(a.name)
-const isImage = (a: Attachment) => a.contentType.startsWith('image/') && !/svg/i.test(a.contentType)
+type Typed = { name: string; contentType: string }
+const isPdf = (a: Typed) => a.contentType === 'application/pdf' || /\.pdf$/i.test(a.name)
+const isImage = (a: Typed) => a.contentType.startsWith('image/') && !/svg/i.test(a.contentType)
 
-function iconFor(a: Attachment): IconName {
+function iconFor(a: Typed): IconName {
   if (isPdf(a)) return 'picture_as_pdf'
   if (isImage(a)) return 'image'
   return 'description'
@@ -98,15 +99,40 @@ function PdfView({ blob }: { blob: Blob }) {
 }
 
 export function AttachmentList({ accountId, messageId, attachments }: { accountId: string; messageId: string; attachments: Attachment[] }) {
+  const visible = attachments.filter((a) => !a.isInline)
+  if (!visible.length) return null
+  return <FileChips files={visible} download={(a) => providerFor(accountId).downloadAttachment(accountId, messageId, a.id)} />
+}
+
+/** A file shown as a chip: name, size, open (PDFs and images in the app) and download. */
+export interface FileChip {
+  id: string
+  name: string
+  size: number
+  contentType: string
+}
+
+export function FileChips({
+  files,
+  download,
+  onRemove,
+  className = '',
+}: {
+  files: FileChip[]
+  download: (f: FileChip) => Promise<Blob>
+  /** Shows a remove button on each chip */
+  onRemove?: (f: FileChip) => void
+  className?: string
+}) {
   const { t } = useTranslation()
   const toast = useStatus((s) => s.toast)
   const [busy, setBusy] = useState<string | null>(null)
-  const [preview, setPreview] = useState<{ att: Attachment; blob: Blob; url: string } | null>(null)
+  const [preview, setPreview] = useState<{ att: FileChip; blob: Blob; url: string } | null>(null)
 
-  const fetchBlob = async (a: Attachment) => {
+  const fetchBlob = async (a: FileChip) => {
     setBusy(a.id)
     try {
-      return await providerFor(accountId).downloadAttachment(accountId, messageId, a.id)
+      return await download(a)
     } catch (e) {
       toast({ tone: 'error', message: t('mail.downloadFailed', { name: a.name, reason: (e as Error).message }) })
       return null
@@ -115,7 +141,7 @@ export function AttachmentList({ accountId, messageId, attachments }: { accountI
     }
   }
 
-  const open = async (a: Attachment) => {
+  const open = async (a: FileChip) => {
     const blob = await fetchBlob(a)
     if (!blob) return
     if (isPdf(a) || isImage(a)) {
@@ -126,27 +152,30 @@ export function AttachmentList({ accountId, messageId, attachments }: { accountI
     }
   }
 
-  const visible = attachments.filter((a) => !a.isInline)
-  if (!visible.length) return null
+  if (!files.length) return null
   return (
     <>
-      <ul className="attachments" aria-label={t('mail.attachments')}>
-        {visible.map((a) => (
+      <ul className={`attachments ${className}`} aria-label={t('mail.attachments')}>
+        {files.map((a) => (
           <li key={a.id} className="attachment">
             <button type="button" className="attachment__main" onClick={() => void open(a)} disabled={busy === a.id} title={a.name}>
               {busy === a.id ? <Spinner size={20} /> : <Icon name={iconFor(a)} />}
               <span className="attachment__name body-medium">{a.name}</span>
               <span className="attachment__size body-small muted">{fileSize(a.size)}</span>
             </button>
-            <IconButton
-              icon="download"
-              label={`${t('mail.download')} ${a.name}`}
-              disabled={busy === a.id}
-              onClick={async () => {
-                const blob = await fetchBlob(a)
-                if (blob) saveBlob(blob, a.name)
-              }}
-            />
+            {onRemove ? (
+              <IconButton icon="close" label={t('files.remove', { name: a.name })} disabled={busy === a.id} onClick={() => onRemove(a)} />
+            ) : (
+              <IconButton
+                icon="download"
+                label={`${t('mail.download')} ${a.name}`}
+                disabled={busy === a.id}
+                onClick={async () => {
+                  const blob = await fetchBlob(a)
+                  if (blob) saveBlob(blob, a.name)
+                }}
+              />
+            )}
           </li>
         ))}
       </ul>

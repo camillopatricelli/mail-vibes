@@ -8,6 +8,7 @@ import { RecipientField } from '../mail/Composer'
 import { htmlToPlain } from '../mail/mime'
 import { isValidEmail } from '../mail/addressBook'
 import { accountLabel, accountLongLabel, useSettings } from '../settings/store'
+import { useStatus } from '../status/store'
 import { AccountBadge, Button, Icon, type IconName } from '../ui/components'
 import { Dialog, Spinner } from '../ui/overlay'
 import { describe, sameRule, type Recurrence } from '../lib/recurrence'
@@ -17,8 +18,9 @@ import { addDays, fromDateKey, startOfDay, toDateKey, toTimeKey, withTime } from
 import { dateLocale, eventWhen } from './format'
 import { leadText, LocationField, RecurrenceField, RemindersField } from './FormFields'
 import { mapsUrl } from './places'
+import { FilesField, FilesView, LinksField, LinksView, useStagedFiles } from './ItemFiles'
 import type { Address } from '../mail/types'
-import type { CalEvent, EventDraft, MeetingChoice, Response, SeriesInfo } from './types'
+import type { CalEvent, EventDraft, EventLink, MeetingChoice, Response, SeriesInfo } from './types'
 
 
 function sanitizeDescription(html: string) {
@@ -100,6 +102,7 @@ export function EventDetails({ event, onClose, onEdit }: { event: ShownEvent; on
     queryFn: () => calendarFor(event.accountId).series(event.accountId, event.calendarId, event.seriesId!),
   })
   const rule = series.data?.recurrence
+  const filesOf = calendarFor(event.accountId).files
 
   return (
     <Dialog
@@ -206,6 +209,18 @@ export function EventDetails({ event, onClose, onEdit }: { event: ShownEvent; on
           <div className="event-details__row">
             <Icon name="subject" />
             <div className="event-description body-medium" dangerouslySetInnerHTML={{ __html: description }} />
+          </div>
+        )}
+        {event.hasFiles && filesOf && (
+          <div className="event-details__row">
+            <Icon name="attach_file" />
+            <FilesView store={filesOf(event.accountId, event.calendarId, event.id)} accountId={event.accountId} itemId={event.id} />
+          </div>
+        )}
+        {!!event.links?.length && (
+          <div className="event-details__row">
+            <Icon name="attach_file" />
+            <LinksView links={event.links} />
           </div>
         )}
         {isInvite && !event.cancelled && (
@@ -403,6 +418,15 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  // Microsoft: files, uploaded on Save (to the series when editing it all). Google: links to Drive files.
+  const filesId = existing ? (seriesMode && existing.seriesId ? existing.seriesId : existing.id) : undefined
+  const calendarIdOf = (key: string) => key.slice(key.indexOf('|') + 1)
+  const fileStore = provider?.files?.(calAccountId, calendarIdOf(calKey), filesId ?? '')
+  const staged = useStagedFiles(fileStore, calAccountId, filesId, !!existing?.hasFiles || seriesMode)
+  const [links, setLinks] = useState<EventLink[]>(existing?.links ?? [])
+  const linksChanged = links.map((l) => l.url).join('\n') !== (existing?.links ?? []).map((l) => l.url).join('\n')
+  const [progress, setProgress] = useState('')
+
   const start = allDay ? fromDateKey(startDate)! : withTime(fromDateKey(startDate) ?? Date.now(), startTime)
   const end = allDay ? addDays(fromDateKey(endDate) ?? start, 1) : withTime(fromDateKey(endDate) ?? Date.now(), endTime)
 
@@ -439,6 +463,7 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
       const draft: EventDraft = { title, start, end, allDay, location, attendees, recurrence: rule }
       if (reminders !== null) draft.reminders = reminders
       if (description !== initialDescription || !existing) draft.description = description
+      if (provider?.supportsLinks && linksChanged) draft.links = links
       if (canAddMeeting && meeting.kind !== 'none') {
         if (!external) draft.nativeMeeting = true
         else {
@@ -469,15 +494,35 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
         if (draft.description !== undefined) changes.description = draft.description
         if (draft.nativeMeeting) changes.nativeMeeting = true
         if (draft.externalMeeting) changes.externalMeeting = draft.externalMeeting
-        if (Object.keys(changes).length) await calendarActions.update(existing as CalEvent, changes, seriesMode)
+        if (draft.links) changes.links = draft.links
+        const anything = Object.keys(changes).length > 0
+        if (anything) await calendarActions.update(existing as CalEvent, changes, seriesMode)
+        if (fileStore && staged.changed) {
+          await staged.apply(fileStore, accountId, filesId!, setProgress)
+          calendarActions.filesSaved(accountId, !anything)
+        }
       } else {
-        await calendarActions.create(accountId, calendarId, draft)
+        const id = await calendarActions.create(accountId, calendarId, draft)
+        const store = calendarFor(accountId).files?.(accountId, calendarId, id)
+        if (store && staged.pending.length) {
+          try {
+            await staged.apply(store, accountId, id, setProgress)
+          } catch (e) {
+            // The event exists: say what is missing instead of offering to save it again.
+            calendarActions.filesSaved(accountId, false)
+            onClose()
+            useStatus.getState().toast({ tone: 'error', message: (e as Error).message })
+            return
+          }
+          calendarActions.filesSaved(accountId, false)
+        }
       }
       onClose()
     } catch (e) {
       setError((e as Error).message)
     } finally {
       setSaving(false)
+      setProgress('')
     }
   }
 
@@ -641,6 +686,14 @@ export function EventEditor({ target, onClose }: { target: EditorTarget; onClose
           <Icon name="subject" />
           <textarea className="event-form__description event-form__grow" rows={4} placeholder={t('calendar.description')} aria-label={t('calendar.description')} value={description} onChange={(e) => setDescription(e.target.value)} />
         </label>
+
+        {fileStore && <FilesField staged={staged} store={fileStore} />}
+        {provider?.supportsLinks && <LinksField value={links} onChange={setLinks} />}
+        {progress && (
+          <p className="body-small muted" role="status">
+            {progress}
+          </p>
+        )}
 
         {error && (
           <p className="field-error" role="alert">

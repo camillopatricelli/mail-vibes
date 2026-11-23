@@ -8,9 +8,10 @@ import { navigate, useLocation } from '../lib/router'
 import { accountLabel, accountLongLabel, useSettings } from '../settings/store'
 import { AccountBadge, Button, Icon, IconButton } from '../ui/components'
 import { Dialog, Spinner } from '../ui/overlay'
+import { AddLink, FilesField, LinksView, linksIn, useStagedFiles } from '../calendar/ItemFiles'
 import { notesWithoutMail } from './mailLink'
 import { openMailLink } from './mailOpen'
-import { defaultListKey, listKey, taskActions, toggleTaskList, useTaskLists, useTasks, type ShownTask } from './data'
+import { defaultListKey, listKey, taskActions, tasksFor, toggleTaskList, useTaskLists, useTasks, type ShownTask } from './data'
 
 type Group = 'date' | 'list'
 
@@ -60,7 +61,7 @@ export function TaskRow({ task, onOpen, showList }: { task: ShownTask; onOpen: (
       <button type="button" className="task-row__body" onClick={() => onOpen(task)}>
         <span className="task-row__title body-large">{task.title || t('tasks.noTitle')}</span>
         {notes && <span className="task-row__notes body-small muted">{notes}</span>}
-        {(task.due !== undefined || task.reminder !== undefined || showList) && (
+        {(task.due !== undefined || task.reminder !== undefined || showList || task.hasFiles) && (
           <span className="task-row__meta">
             {task.due !== undefined && (
               <span className={['task-chip label-medium', overdue && 'is-overdue', span && 'is-ongoing'].filter(Boolean).join(' ')}>
@@ -78,6 +79,11 @@ export function TaskRow({ task, onOpen, showList }: { task: ShownTask; onOpen: (
             {task.recurrence && (
               <span className="task-chip label-medium" title={describe(task.recurrence, task.due ?? Date.now(), t, dateLocale())}>
                 <Icon name="repeat" size={14} />
+              </span>
+            )}
+            {task.hasFiles && (
+              <span className="task-chip label-medium" title={t('files.hasFiles')}>
+                <Icon name="attach_file" size={14} />
               </span>
             )}
             {showList && (
@@ -231,6 +237,11 @@ export function TaskDialog({ task, onClose }: { task: ShownTask; onClose: () => 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const account = useSettings((s) => s.accounts.find((a) => a.id === task.accountId))
+  // To Do: files, uploaded on Save. Google Tasks: links in the notes.
+  const fileStore = useMemo(() => tasksFor(task.accountId).files?.(task.accountId, task.listId, task.id), [task.accountId, task.listId, task.id])
+  const staged = useStagedFiles(fileStore, task.accountId, task.id, !!task.hasFiles)
+  const [progress, setProgress] = useState('')
+  const noteLinks = useMemo(() => (fileStore ? [] : linksIn(task.mail ? notesWithoutMail(notes) : notes)), [fileStore, notes, task.mail])
 
   const run = async (f: () => Promise<void>) => {
     setBusy(true)
@@ -264,7 +275,16 @@ export function TaskDialog({ task, onClose }: { task: ShownTask; onClose: () => 
         // To Do anchors the rule at the due date, so it goes along.
         change.due ??= newDue
       }
-      if (Object.keys(change).length) await taskActions.update(task, change)
+      const anything = Object.keys(change).length > 0
+      if (anything) await taskActions.update(task, change)
+      if (fileStore && staged.changed) {
+        try {
+          await staged.apply(fileStore, task.accountId, task.id, setProgress)
+        } finally {
+          setProgress('')
+          taskActions.filesSaved(task, !anything)
+        }
+      }
     })
   }
 
@@ -301,6 +321,24 @@ export function TaskDialog({ task, onClose }: { task: ShownTask; onClose: () => 
           <Icon name="subject" />
           <textarea className="event-form__description event-form__grow" rows={4} placeholder={t('tasks.notes')} aria-label={t('tasks.notes')} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </label>
+        {fileStore ? (
+          <FilesField staged={staged} store={fileStore} />
+        ) : (
+          <div className="event-form__row item-files">
+            <Icon name="attach_file" />
+            <div className="event-form__grow item-files__body">
+              <LinksView links={noteLinks} />
+              <AddLink
+                onAdd={(l) => setNotes((n) => [n.trimEnd(), l.title && l.title !== l.url ? `${l.title}: ${l.url}` : l.url].filter(Boolean).join('\n'))}
+              />
+            </div>
+          </div>
+        )}
+        {progress && (
+          <p className="body-small muted" role="status">
+            {progress}
+          </p>
+        )}
         <div className="event-form__row task-dates">
           <Icon name="event" />
           <label className="task-dates__field">
