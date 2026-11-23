@@ -1,7 +1,7 @@
 import { google as googleConfig } from '../config'
 import i18n from '../i18n'
 import { queryClient } from '../lib/queryClient'
-import { bridgeBase, bridgeFeatures } from '../mail/imap/bridge'
+import { BridgeError, bridgeBase, bridgeFeatures } from '../mail/imap/bridge'
 import { forgetPassword, getPassword, googleKey, isRemembered, setPassword } from '../mail/imap/passwords'
 import { NetworkError } from '../providers/graph'
 import { useSettings } from '../settings/store'
@@ -104,8 +104,18 @@ export function preloadGoogle(always = false) {
   if (always || useSettings.getState().accounts.some((a) => a.provider === 'google')) {
     void loadGis().catch(() => undefined)
     void checkLongSignIns()
+    if (!listening) {
+      listening = true
+      // A phone often starts (or wakes up) without network: check again once it's back.
+      const again = () => {
+        if (!checkedOk && navigator.onLine && document.visibilityState === 'visible') void checkLongSignIns()
+      }
+      addEventListener('online', again)
+      document.addEventListener('visibilitychange', again)
+    }
   }
 }
+let listening = false
 
 export const googleConfigured = () => !!googleConfig.clientId
 
@@ -141,10 +151,53 @@ async function requestToken(opts: { prompt: string; loginHint?: string }): Promi
 
 // ---------- Long-lasting sign-ins through the bridge ----------
 
-/** The bridge can exchange codes (checked by preloadGoogle; must be known before a click) */
-let bridgeCanSignIn = false
+/**
+ * Whether the bridge can exchange codes. It must be known before a click (the popup opens at
+ * once), so the last answer is remembered: a start without network still uses the bridge.
+ */
+const CAN_KEY = 'mail-vibes.bridge-google'
+function knownCapability(url: string) {
+  try {
+    const v = JSON.parse(localStorage.getItem(CAN_KEY) ?? 'null') as { url?: string; google?: boolean } | null
+    return v?.url === url && v.google === true
+  } catch {
+    return false
+  }
+}
+let bridgeCanSignIn = (() => {
+  const b = useSettings.getState().bridge
+  return !!b && knownCapability(b.url)
+})()
+/** The bridge answered the last check */
+let checkedOk = false
 /** Accounts with a long-lasting sign-in on this device */
 const longLived = new Set<string>()
+
+/** When and why Google ended a long-lasting sign-in on this device (shown in Settings). */
+const ENDED_KEY = 'mail-vibes.google-signin-ended'
+type Ended = Record<string, { at: number; reason: string }>
+function endedLog(): Ended {
+  try {
+    return (JSON.parse(localStorage.getItem(ENDED_KEY) ?? '{}') as Ended) ?? {}
+  } catch {
+    return {}
+  }
+}
+function noteEnded(accountId: string, reason?: string) {
+  const log = endedLog()
+  if (reason) log[accountId] = { at: Date.now(), reason }
+  else delete log[accountId]
+  try {
+    localStorage.setItem(ENDED_KEY, JSON.stringify(log))
+  } catch {
+    /* storage full or blocked: only the note is lost */
+  }
+}
+
+/** For Settings: whether this device stays signed in, and when Google last ended that. */
+export function googleSignInState(accountId: string) {
+  return { long: longLived.has(accountId), ended: endedLog()[accountId] }
+}
 
 const CALLBACK = 'google-signin.html'
 /** Written by this page before leaving for Google: what to do with the answer */
@@ -180,11 +233,17 @@ const usesBridge = () => bridgeCanSignIn && !!useSettings.getState().bridge
 /** Checks whether the bridge can make sign-ins last, and which accounts already have one here. */
 async function checkLongSignIns() {
   const b = useSettings.getState().bridge
-  try {
-    bridgeCanSignIn = !!b && (await bridgeFeatures(b)).google
-  } catch {
-    bridgeCanSignIn = false
-  }
+  if (!b) bridgeCanSignIn = false
+  else
+    try {
+      const { google } = await bridgeFeatures(b)
+      bridgeCanSignIn = google
+      checkedOk = true
+      localStorage.setItem(CAN_KEY, JSON.stringify({ url: b.url, google }))
+    } catch (e) {
+      // Unreachable for now (no network): keep the last answer. A refused key is a real "no".
+      bridgeCanSignIn = !(e instanceof BridgeError && e.kind === 'key') && knownCapability(b.url)
+    }
   for (const a of useSettings.getState().accounts)
     if (a.provider === 'google' && (await isRemembered(googleKey(a.id)))) longLived.add(a.id)
 }
@@ -212,7 +271,10 @@ async function bridgeToken(body: Record<string, string>): Promise<TokenResponse>
     /* not JSON: the bridge's own error text */
   }
   // invalid_grant: access was revoked, the password changed, or the sign-in expired (Testing mode).
-  if (j.error === 'invalid_grant') throw new AuthRequiredError(i18n.t('accounts.googleSignInEnded'))
+  if (j.error === 'invalid_grant')
+    throw Object.assign(new AuthRequiredError(i18n.t('accounts.googleSignInEnded')), {
+      detail: j.error_description ? `${j.error}: ${j.error_description}` : j.error,
+    })
   if (!res.ok || !j.access_token) throw new Error(j.error_description || j.error || i18n.t('errors.googleSignIn'))
   return j
 }
@@ -318,6 +380,7 @@ async function keepRefreshToken(accountId: string, r: TokenResponse) {
   if (!r.refresh_token) return
   await setPassword(googleKey(accountId), r.refresh_token, true)
   longLived.add(accountId)
+  noteEnded(accountId)
 }
 
 const renewing = new Map<string, Promise<string>>()
@@ -334,6 +397,7 @@ function renew(accountId: string, refreshToken: string): Promise<string> {
       } catch (e) {
         if (e instanceof AuthRequiredError) {
           longLived.delete(accountId)
+          noteEnded(accountId, (e as { detail?: string }).detail ?? e.message)
           await forgetPassword(googleKey(accountId))
         }
         throw e
@@ -444,7 +508,13 @@ export async function getGoogleToken(accountId: string): Promise<string> {
   const t = tokens.get(accountId)
   if (t && t.expiresAt - 60_000 > Date.now()) return t.value
   tokens.delete(accountId)
-  const refreshToken = await getPassword(googleKey(accountId))
+  let refreshToken = await getPassword(googleKey(accountId))
+  if (!refreshToken && longLived.has(accountId)) {
+    // It was there: the browser's storage didn't answer (a phone waking up). Not a sign-out.
+    await new Promise((r) => setTimeout(r, 1500))
+    refreshToken = await getPassword(googleKey(accountId))
+    if (!refreshToken) throw new NetworkError()
+  }
   if (refreshToken) {
     longLived.add(accountId)
     return renew(accountId, refreshToken)
@@ -473,5 +543,6 @@ export function markGoogleTokenInvalid(accountId: string) {
 export async function forgetGoogleAccount(accountId: string) {
   tokens.delete(accountId)
   longLived.delete(accountId)
+  noteEnded(accountId)
   await forgetPassword(googleKey(accountId))
 }

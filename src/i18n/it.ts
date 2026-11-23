@@ -28,6 +28,9 @@ const it: Messages = {
   accounts: {
     googleNotConfigured: "L'accesso Google non è configurato in questa copia dell'app.",
     googleSignIn: "Gli accessi Google durano un'ora. Accedi di nuovo per continuare (di solito basta un clic).",
+    googleLong: 'Su questo dispositivo l\u2019accesso resta attivo.',
+    googleHour: 'Su questo dispositivo gli accessi durano un\u2019ora.',
+    googleEnded: 'Google ha chiuso l\u2019accesso di lunga durata il {{when}} ({{reason}}).',
     googleSignInEnded: 'Google ha chiuso l’accesso di questo dispositivo (accesso revocato, password cambiata, o il progetto Google dell’app è in modalità Test). Accedi di nuovo.',
     filterLabel: 'Mostra account',
     all: 'Tutti',

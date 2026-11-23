@@ -26,6 +26,9 @@ const en = {
   accounts: {
     googleNotConfigured: 'Google sign-in is not configured for this copy of the app.',
     googleSignIn: 'Google sign-ins last one hour. Sign in again to continue (usually one click).',
+    googleLong: 'This device stays signed in.',
+    googleHour: 'On this device, sign-ins last one hour.',
+    googleEnded: 'Google ended the long-lasting sign-in on {{when}} ({{reason}}).',
     googleSignInEnded: 'Google ended this device’s sign-in (access removed, password changed, or the app’s Google project is in Testing mode). Sign in again.',
     filterLabel: 'Show accounts',
     all: 'All',

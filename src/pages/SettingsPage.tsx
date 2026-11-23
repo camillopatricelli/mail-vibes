@@ -32,7 +32,7 @@ import { useStatus } from '../status/store'
 import { AccountBadge, Button, Card, IconButton } from '../ui/components'
 import { Dialog } from '../ui/overlay'
 import { addGoogle, addMicrosoft, removeAccount, replaceSetup } from '../auth/accounts'
-import { googleConfigured, preloadGoogle } from '../auth/google'
+import { googleConfigured, googleSignInState, preloadGoogle } from '../auth/google'
 
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -156,6 +156,7 @@ function AccountRow({ a }: { a: AccountSettings }) {
               : (tenantName ?? t('accounts.microsoft'))}{' '}
           · {state}
         </p>
+        {a.provider === 'google' && <GoogleSignInNote accountId={a.id} />}
         <ColorPicker
           value={a.color}
           label={t('settings.accountColor', { account: a.email })}
@@ -169,6 +170,19 @@ function AccountRow({ a }: { a: AccountSettings }) {
         }}
       />
     </div>
+  )
+}
+
+/** Whether this device stays signed in to a Google account, and when Google last ended that. */
+function GoogleSignInNote({ accountId }: { accountId: string }) {
+  const { t } = useTranslation()
+  useStatus((s) => s.accounts[accountId]) // re-render when the account's state changes
+  const { long, ended } = googleSignInState(accountId)
+  return (
+    <p className="body-small muted">
+      {long ? t('accounts.googleLong') : t('accounts.googleHour')}
+      {ended && ` · ${t('accounts.googleEnded', { when: new Date(ended.at).toLocaleString(), reason: ended.reason })}`}
+    </p>
   )
 }
 
