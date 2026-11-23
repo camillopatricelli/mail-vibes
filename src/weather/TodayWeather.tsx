@@ -156,8 +156,10 @@ function WeatherCard({ f }: { f: Forecast }) {
       <div className="weather__now">
         <Icon name={now.icon} filled size={64} className={`wx wx--${now.tone}`} />
         <div>
-          <div className="weather__temp">{deg(f.now.temp)}</div>
-          <div className="title-medium">{nowText}</div>
+          <div className="weather__headline">
+            <div className="weather__temp">{deg(f.now.temp)}</div>
+            <div className="title-medium">{nowText}</div>
+          </div>
           <div className="body-small muted">
             {t('weather.feelsLike', { temp: deg(f.now.feels) })} · {t('weather.wind', { speed: Math.round(f.now.wind) })}
           </div>
@@ -173,7 +175,7 @@ function WeatherCard({ f }: { f: Forecast }) {
           const sun = f.sun.filter((s) => s.time >= h.time && s.time < h.time + 3_600_000)
           return (
             <Fragment key={h.time}>
-              <li className={i === 0 ? 'weather__hour is-now' : 'weather__hour'} title={kind}>
+              <li className={['weather__hour', i === 0 && 'is-now', i % 2 === 1 && 'weather__hour--odd'].filter(Boolean).join(' ')} title={kind}>
                 <span className="label-medium">{i === 0 ? t('weather.now') : hourLabel(h.time)}</span>
                 <Icon name={w.icon} filled size={28} className={`wx wx--${w.tone}`} label={kind} />
                 <span className="title-small">{deg(h.temp)}</span>

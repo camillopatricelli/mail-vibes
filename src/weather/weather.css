@@ -47,6 +47,30 @@
   color: var(--md-sys-color-on-surface-variant);
 }
 
+/* Wider screens: one slim row, every 2 hours, no visible scroll bar (phones keep the layout above). */
+@media (min-width: 700px) {
+  .weather {
+    grid-template-rows: auto auto;
+    gap: 0 24px;
+    padding: 12px 16px;
+  }
+  .weather__now { grid-column: 1; grid-row: 1; gap: 12px; padding-right: 0; }
+  .weather__now .wx { width: 40px; height: 40px; }
+  .weather__headline { display: flex; align-items: baseline; gap: 8px; }
+  .weather__temp { font-size: 32px; line-height: 36px; }
+  .weather__credit { grid-column: 1; grid-row: 2; justify-self: start; align-self: end; margin-left: 52px; }
+  .weather__hours {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    padding: 0;
+    scrollbar-width: none;
+  }
+  .weather__hours::-webkit-scrollbar { display: none; }
+  .weather__hour { flex: 1 0 52px; gap: 2px; padding: 4px 0; }
+  .weather__hour .wx { width: 24px; height: 24px; }
+  .weather__hour--odd { display: none; }
+}
+
 /* Icon tints for each theme (applyTheme sets data-theme on <html>). */
 :root {
   --wx-sun: #eb9b00;
