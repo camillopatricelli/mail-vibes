@@ -14,6 +14,7 @@
 .quick-add__input { flex: 1 1 220px; min-width: 0; height: 40px; border: 0; background: none; color: var(--md-sys-color-on-surface); font: inherit; }
 .quick-add__input:focus { outline: 0; }
 .quick-add__date, .quick-add__list { flex: 0 1 auto; max-width: 220px; }
+.quick-add__reminder { display: inline-flex; align-items: center; gap: 4px; }
 
 .task-sections { display: flex; flex-direction: column; gap: 20px; max-width: 900px; }
 .task-board { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; align-items: start; }

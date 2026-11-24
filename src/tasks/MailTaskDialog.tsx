@@ -8,7 +8,7 @@ import { Button, Icon, IconButton } from '../ui/components'
 import { Dialog, Spinner } from '../ui/overlay'
 import { defaultListKey, listKey, taskActions, useTaskLists } from './data'
 import { mailSource } from './mailOpen'
-import { ListSelect } from './TasksPage'
+import { ListSelect, ReminderField, reminderTimestamp } from './TasksPage'
 
 /** "Add to Tasks" from an email: the task keeps a link back to the message. */
 export function MailTaskDialog({ message, onClose }: { message: MailSummary; onClose: () => void }) {
@@ -18,6 +18,7 @@ export function MailTaskDialog({ message, onClose }: { message: MailSummary; onC
   const [title, setTitle] = useState(message.subject)
   const [notes, setNotes] = useState('')
   const [due, setDue] = useState('')
+  const [reminder, setReminder] = useState('')
   const [target, setTarget] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -32,7 +33,7 @@ export function MailTaskDialog({ message, onClose }: { message: MailSummary; onC
     setError('')
     try {
       const source = await mailSource(message)
-      await taskActions.create(key.slice(0, i), key.slice(i + 1), { title: title.trim(), notes, due: fromDateKey(due) ?? null }, source)
+      await taskActions.create(key.slice(0, i), key.slice(i + 1), { title: title.trim(), notes, due: fromDateKey(due) ?? null, reminder: reminderTimestamp(reminder) ?? null }, source)
       useStatus.getState().toast({ tone: 'success', message: t('tasks.addedFromMail') })
       onClose()
     } catch (e) {
@@ -76,6 +77,10 @@ export function MailTaskDialog({ message, onClose }: { message: MailSummary; onC
           <input type="date" className="select" value={due} onChange={(e) => setDue(e.target.value)} aria-label={t('tasks.due')} />
           {due && <IconButton icon="close" label={t('tasks.clearDue')} onClick={() => setDue('')} />}
         </label>
+        <div className="event-form__row">
+          <Icon name="notifications" />
+          <ReminderField value={reminder} onChange={setReminder} due={fromDateKey(due)} />
+        </div>
         <div className="event-form__row">
           <Icon name="task_alt" />
           {isLoading && !lists.length ? <Spinner size={20} /> : key ? <ListSelect value={key} onChange={setTarget} /> : <span className="body-medium muted">{t('tasks.noLists')}</span>}

@@ -176,6 +176,7 @@ function QuickAdd() {
   const defaultAccount = useSettings((s) => s.defaults.taskAccountId)
   const [title, setTitle] = useState('')
   const [due, setDue] = useState('')
+  const [reminder, setReminder] = useState('')
   const [target, setTarget] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -187,9 +188,10 @@ function QuickAdd() {
     setBusy(true)
     setError('')
     try {
-      await taskActions.create(key.slice(0, i), key.slice(i + 1), { title: title.trim(), notes: '', due: fromDateKey(due) ?? null })
+      await taskActions.create(key.slice(0, i), key.slice(i + 1), { title: title.trim(), notes: '', due: fromDateKey(due) ?? null, reminder: reminderTimestamp(reminder) ?? null })
       setTitle('')
       setDue('')
+      setReminder('')
     } catch (e) {
       setError(t('tasks.addFailed', { reason: (e as Error).message }))
     } finally {
@@ -212,6 +214,9 @@ function QuickAdd() {
           disabled={busy}
         />
         <input type="date" className="select quick-add__date" value={due} onChange={(e) => setDue(e.target.value)} aria-label={t('tasks.due')} />
+        <span className="quick-add__reminder">
+          <ReminderField value={reminder} onChange={setReminder} due={fromDateKey(due)} compact />
+        </span>
         <ListSelect className="select quick-add__list" value={key} onChange={setTarget} />
         <Button variant="tonal" onClick={() => void add()} disabled={!title.trim() || busy}>
           {t('tasks.add')}
@@ -223,6 +228,34 @@ function QuickAdd() {
         </p>
       )}
     </div>
+  )
+}
+
+/** A datetime-local value ("2026-11-24T09:00") as a timestamp. */
+export const reminderTimestamp = (v: string) => (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) ? withTime(fromDateKey(v.slice(0, 10))!, v.slice(11)) : undefined)
+
+/** "Add reminder", then a date-and-time field. `compact` shows a bell button instead of the text button. */
+export function ReminderField({ value, onChange, due, compact }: { value: string; onChange: (v: string) => void; due?: number; compact?: boolean }) {
+  const { t } = useTranslation()
+  if (value)
+    return (
+      <>
+        <input type="datetime-local" className="select" value={value} onChange={(e) => onChange(e.target.value)} aria-label={t('tasks.reminder')} />
+        <IconButton icon="close" label={t('tasks.noReminder')} onClick={() => onChange('')} />
+      </>
+    )
+  const add = () => {
+    // Default: 9:00 on the due date (or tomorrow, if that's past).
+    let at = withTime(due ?? addDays(startOfDay(Date.now()), 1), '09:00')
+    if (at < Date.now()) at = withTime(addDays(startOfDay(Date.now()), 1), '09:00')
+    onChange(`${toDateKey(at)}T${toTimeKey(at)}`)
+  }
+  return compact ? (
+    <IconButton icon="notifications" label={t('tasks.addReminder')} onClick={add} />
+  ) : (
+    <Button variant="text" icon="add" onClick={add}>
+      {t('tasks.addReminder')}
+    </Button>
   )
 }
 
@@ -257,7 +290,7 @@ export function TaskDialog({ task, onClose }: { task: ShownTask; onClose: () => 
   const startTs = fromDateKey(start)
   // Only a start date: the task is due that day too. Repeating tasks need a due date to repeat from.
   const dueTs = fromDateKey(due) ?? startTs ?? (rule ? startOfDay(Date.now()) : undefined)
-  const reminderTs = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(reminder) ? withTime(fromDateKey(reminder.slice(0, 10))!, reminder.slice(11)) : undefined
+  const reminderTs = reminderTimestamp(reminder)
   const save = () => {
     if (startTs !== undefined && dueTs !== undefined && startTs > dueTs) return setError(t('tasks.startAfterDue'))
     return run(async () => {
@@ -363,25 +396,7 @@ export function TaskDialog({ task, onClose }: { task: ShownTask; onClose: () => 
         {start && !due && <p className="body-small muted task-dates__hint">{t('tasks.dueSameAsStart')}</p>}
         <div className="event-form__row">
           <Icon name="notifications" />
-          {reminder ? (
-            <>
-              <input type="datetime-local" className="select" value={reminder} onChange={(e) => setReminder(e.target.value)} aria-label={t('tasks.reminder')} />
-              <IconButton icon="close" label={t('tasks.noReminder')} onClick={() => setReminder('')} />
-            </>
-          ) : (
-            <Button
-              variant="text"
-              icon="add"
-              onClick={() => {
-                // Default: 9:00 on the due date (or tomorrow, if that's past).
-                let at = withTime(dueTs ?? addDays(startOfDay(Date.now()), 1), '09:00')
-                if (at < Date.now()) at = withTime(addDays(startOfDay(Date.now()), 1), '09:00')
-                setReminder(`${toDateKey(at)}T${toTimeKey(at)}`)
-              }}
-            >
-              {t('tasks.addReminder')}
-            </Button>
-          )}
+          <ReminderField value={reminder} onChange={setReminder} due={dueTs} />
         </div>
         <div className="event-form__row event-form__when">
           <Icon name="repeat" />
