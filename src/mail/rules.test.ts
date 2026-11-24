@@ -56,7 +56,7 @@ describe('Outlook rules', () => {
 
   it('clears unused fields when editing', () => {
     expect(specToOutlook(spec({ words: 'x', move: { kind: 'archive' } }), 'ARCH', true)).toEqual({
-      conditions: { fromAddresses: [], senderContains: [], bodyOrSubjectContains: ['x'] },
+      conditions: { fromAddresses: null, senderContains: null, bodyOrSubjectContains: ['x'] },
       actions: { markAsRead: false, delete: false, moveToFolder: 'ARCH' },
     })
   })

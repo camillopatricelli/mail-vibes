@@ -224,9 +224,10 @@ export function specToOutlook(s: RuleSpec, archiveId: string | undefined, full: 
   const words = s.words.trim()
   const folder = s.move.kind === 'folder' ? s.move.id : s.move.kind === 'archive' ? archiveId : undefined
   const conditions: Record<string, unknown> = {
-    fromAddresses: from && looksLikeAddress(from) ? [{ emailAddress: { address: from } }] : [],
-    senderContains: from && !looksLikeAddress(from) ? [from] : [],
-    bodyOrSubjectContains: words ? [words] : [],
+    // Unused conditions are null, not []: Graph rejects empty lists with EmptyValueFound.
+    fromAddresses: from && looksLikeAddress(from) ? [{ emailAddress: { address: from } }] : null,
+    senderContains: from && !looksLikeAddress(from) ? [from] : null,
+    bodyOrSubjectContains: words ? [words] : null,
   }
   const actions: Record<string, unknown> = { markAsRead: s.markRead, delete: s.move.kind === 'delete', moveToFolder: folder ?? null }
   const prune = (o: Record<string, unknown>) => (full ? o : Object.fromEntries(Object.entries(o).filter(([, v]) => !blank(v))))
