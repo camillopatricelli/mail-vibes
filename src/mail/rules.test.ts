@@ -43,21 +43,21 @@ describe('Gmail filters', () => {
 
 describe('Outlook rules', () => {
   it('uses the exact address when there is one, otherwise "sender contains"', () => {
-    const full = specToOutlook(spec({ from: 'sender@somewhere.com', words: 'a few words', markRead: true, move: { kind: 'folder', id: 'F1' } }), 'ARCH', false)
+    const full = specToOutlook(spec({ from: 'sender@somewhere.com', words: 'a few words', markRead: true, move: { kind: 'folder', id: 'F1' } }), 'ARCH')
     expect(full).toEqual({
       conditions: { fromAddresses: [{ emailAddress: { address: 'sender@somewhere.com' } }], bodyOrSubjectContains: ['a few words'] },
       actions: { markAsRead: true, moveToFolder: 'F1' },
     })
-    expect(specToOutlook(spec({ from: 'somewhere.com', move: { kind: 'delete' } }), 'ARCH', false)).toEqual({
+    expect(specToOutlook(spec({ from: 'somewhere.com', move: { kind: 'delete' } }), 'ARCH')).toEqual({
       conditions: { senderContains: ['somewhere.com'] },
       actions: { delete: true },
     })
   })
 
-  it('clears unused fields when editing', () => {
-    expect(specToOutlook(spec({ words: 'x', move: { kind: 'archive' } }), 'ARCH', true)).toEqual({
-      conditions: { fromAddresses: null, senderContains: null, bodyOrSubjectContains: ['x'] },
-      actions: { markAsRead: false, delete: false, moveToFolder: 'ARCH' },
+  it('leaves unused fields out', () => {
+    expect(specToOutlook(spec({ words: 'x', move: { kind: 'archive' } }), 'ARCH')).toEqual({
+      conditions: { bodyOrSubjectContains: ['x'] },
+      actions: { moveToFolder: 'ARCH' },
     })
   })
 

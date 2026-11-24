@@ -218,19 +218,18 @@ export function outlookToSpec(r: ORule, archiveId?: string): RuleSpec | undefine
   return isEmptySpec(spec) || hasNoAction(spec) ? undefined : spec
 }
 
-/** Conditions and actions for a create (`full` = false) or a PATCH that clears what is no longer used. */
-export function specToOutlook(s: RuleSpec, archiveId: string | undefined, full: boolean) {
+/** Conditions and actions for creating a rule; unused ones are left out. */
+export function specToOutlook(s: RuleSpec, archiveId: string | undefined) {
   const from = s.from.trim()
   const words = s.words.trim()
   const folder = s.move.kind === 'folder' ? s.move.id : s.move.kind === 'archive' ? archiveId : undefined
   const conditions: Record<string, unknown> = {
-    // Unused conditions are null, not []: Graph rejects empty lists with EmptyValueFound.
-    fromAddresses: from && looksLikeAddress(from) ? [{ emailAddress: { address: from } }] : null,
-    senderContains: from && !looksLikeAddress(from) ? [from] : null,
-    bodyOrSubjectContains: words ? [words] : null,
+    fromAddresses: from && looksLikeAddress(from) ? [{ emailAddress: { address: from } }] : [],
+    senderContains: from && !looksLikeAddress(from) ? [from] : [],
+    bodyOrSubjectContains: words ? [words] : [],
   }
   const actions: Record<string, unknown> = { markAsRead: s.markRead, delete: s.move.kind === 'delete', moveToFolder: folder ?? null }
-  const prune = (o: Record<string, unknown>) => (full ? o : Object.fromEntries(Object.entries(o).filter(([, v]) => !blank(v))))
+  const prune = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => !blank(v)))
   return { conditions: prune(conditions), actions: prune(actions) }
 }
 
@@ -318,15 +317,14 @@ export async function saveRule(accountId: string, spec: RuleSpec, existing?: Mai
   }
   const archive = spec.move.kind === 'archive' ? await archiveId(accountId) : undefined
   const name = spec.name?.trim() || defaultRuleName(spec)
-  if (existing) {
-    await graph(accountId, `${RULES}/${existing.id}`, { method: 'PATCH', scopes: MAILBOX_SCOPES, body: { displayName: name, ...specToOutlook(spec, archive, true) } })
-  } else {
-    await graph(accountId, RULES, {
-      method: 'POST',
-      scopes: MAILBOX_SCOPES,
-      body: { displayName: name, sequence: nextSequence, isEnabled: true, ...specToOutlook(spec, archive, false) },
-    })
-  }
+  // Graph can't clear a condition with PATCH (it rejects both [] and null), so an edit
+  // creates the new rule in the old one's place and then deletes the old one.
+  await graph(accountId, RULES, {
+    method: 'POST',
+    scopes: MAILBOX_SCOPES,
+    body: { displayName: name, sequence: existing?.sequence ?? nextSequence, isEnabled: existing?.enabled ?? true, ...specToOutlook(spec, archive) },
+  })
+  if (existing) await graph(accountId, `${RULES}/${existing.id}`, { method: 'DELETE', scopes: MAILBOX_SCOPES })
 }
 
 export async function deleteRule(rule: MailRule) {
