@@ -5,6 +5,7 @@ import { ApiError, graph, type GraphPage } from '../providers/graph'
 import { useSettings, type ImapRule } from '../settings/store'
 import { isImap, providerFor } from './api'
 import { refreshAccountMail } from './data'
+import { htmlToText } from './html'
 import type { MailSummary } from './types'
 
 /**
@@ -24,6 +25,8 @@ export interface RuleSpec {
   from: string
   /** Words the subject or body must contain (one phrase) */
   words: string
+  /** Words that make the rule skip a message (one phrase) */
+  except?: string
   markRead: boolean
   move: RuleMove
   /** Outlook only: the rule's name */
@@ -72,10 +75,10 @@ export interface GFilter {
   action?: { addLabelIds?: string[]; removeLabelIds?: string[]; forward?: string }
 }
 
-/** Gmail matches separate words anywhere; quotes make it look for the exact phrase. */
+/** Gmail matches separate words anywhere; quotes make it look for the exact phrase (and keep "job:" from being an operator). */
 export function gmailPhrase(words: string) {
   const w = words.trim().replace(/"/g, '')
-  return /\s/.test(w) ? `"${w}"` : w
+  return /[\s:(){}]|^-/.test(w) ? `"${w}"` : w
 }
 
 /** The words of a Gmail query the app can edit: one word or one quoted phrase, no search operators. */
@@ -91,6 +94,7 @@ export function specToGmail(s: RuleSpec): GFilter {
   const criteria: NonNullable<GFilter['criteria']> = {}
   if (s.from.trim()) criteria.from = s.from.trim()
   if (s.words.trim()) criteria.query = gmailPhrase(s.words)
+  if (s.except?.trim()) criteria.negatedQuery = gmailPhrase(s.except)
   const add: string[] = []
   const remove: string[] = []
   if (s.markRead) remove.push('UNREAD')
@@ -106,10 +110,11 @@ export function specToGmail(s: RuleSpec): GFilter {
 export function gmailToSpec(f: GFilter): RuleSpec | undefined {
   const c = f.criteria ?? {}
   const a = f.action ?? {}
-  const extra = Object.entries(c).some(([k, v]) => k !== 'from' && k !== 'query' && v !== undefined && v !== false && v !== '')
+  const extra = Object.entries(c).some(([k, v]) => !['from', 'query', 'negatedQuery'].includes(k) && v !== undefined && v !== false && v !== '')
   if (extra || a.forward) return undefined
   const words = c.query ? phraseOf(c.query) : ''
-  if (words === undefined) return undefined
+  const except = c.negatedQuery ? phraseOf(c.negatedQuery) : ''
+  if (words === undefined || except === undefined) return undefined
   const add = a.addLabelIds ?? []
   const remove = a.removeLabelIds ?? []
   if (add.length > 1 || remove.some((l) => l !== 'UNREAD' && l !== 'INBOX')) return undefined
@@ -121,7 +126,7 @@ export function gmailToSpec(f: GFilter): RuleSpec | undefined {
     if (!outOfInbox || !add[0].startsWith('Label_')) return undefined
     move = { kind: 'folder', id: add[0] }
   } else if (outOfInbox) move = { kind: 'archive' }
-  const spec: RuleSpec = { from: c.from ?? '', words, markRead: remove.includes('UNREAD'), move }
+  const spec: RuleSpec = { from: c.from ?? '', words, ...(except ? { except } : {}), markRead: remove.includes('UNREAD'), move }
   return isEmptySpec(spec) || hasNoAction(spec) ? undefined : spec
 }
 
@@ -198,7 +203,10 @@ export function outlookToSpec(r: ORule, archiveId?: string): RuleSpec | undefine
   if (r.isReadOnly) return undefined
   const c = r.conditions ?? {}
   const a = r.actions ?? {}
-  if (Object.values(r.exceptions ?? {}).some((v) => !blank(v))) return undefined
+  const ex = r.exceptions ?? {}
+  if (Object.entries(ex).some(([k, v]) => k !== 'bodyOrSubjectContains' && !blank(v))) return undefined
+  const except = (ex.bodyOrSubjectContains as string[] | null | undefined) ?? []
+  if (except.length > 1) return undefined
   if (Object.entries(c).some(([k, v]) => !['fromAddresses', 'senderContains', 'bodyOrSubjectContains'].includes(k) && !blank(v))) return undefined
   if (Object.entries(a).some(([k, v]) => !['markAsRead', 'moveToFolder', 'delete', 'stopProcessingRules'].includes(k) && !blank(v))) return undefined
   const fromAddresses = (c.fromAddresses as Addr[] | undefined) ?? []
@@ -211,6 +219,7 @@ export function outlookToSpec(r: ORule, archiveId?: string): RuleSpec | undefine
   const spec: RuleSpec = {
     from: fromAddresses[0]?.emailAddress?.address ?? senderContains[0] ?? '',
     words: words[0] ?? '',
+    ...(except[0] ? { except: except[0] } : {}),
     markRead: a.markAsRead === true,
     move,
     name: r.displayName,
@@ -230,12 +239,13 @@ export function specToOutlook(s: RuleSpec, archiveId: string | undefined) {
   }
   const actions: Record<string, unknown> = { markAsRead: s.markRead, delete: s.move.kind === 'delete', moveToFolder: folder ?? null }
   const prune = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => !blank(v)))
-  return { conditions: prune(conditions), actions: prune(actions) }
+  const except = s.except?.trim()
+  return { conditions: prune(conditions), actions: prune(actions), ...(except ? { exceptions: { bodyOrSubjectContains: [except] } } : {}) }
 }
 
 /** The name Outlook shows in its rule list when the user didn't give one. */
 export function defaultRuleName(s: RuleSpec) {
-  const parts = [s.from.trim(), s.words.trim() && `"${s.words.trim()}"`].filter(Boolean)
+  const parts = [s.from.trim(), s.words.trim() && `"${s.words.trim()}"`, s.except?.trim() && `not "${s.except.trim()}"`].filter(Boolean)
   return `Mail Vibes: ${parts.join(' · ')}`.slice(0, 250)
 }
 
@@ -305,7 +315,7 @@ export const listRules = (accountId: string) =>
 /** Creates a rule, or replaces `existing`. Gmail filters can't be edited, so a new one replaces the old. */
 export async function saveRule(accountId: string, spec: RuleSpec, existing?: MailRule, nextSequence = 1) {
   if (isImap(accountId)) {
-    const rule: ImapRule = { id: existing?.id ?? crypto.randomUUID(), from: spec.from.trim(), words: spec.words.trim(), markRead: spec.markRead, move: spec.move }
+    const rule: ImapRule = { id: existing?.id ?? crypto.randomUUID(), from: spec.from.trim(), words: spec.words.trim(), except: spec.except?.trim() || undefined, markRead: spec.markRead, move: spec.move }
     const rules = imapRules(accountId)
     setImapRules(accountId, existing ? rules.map((r) => (r.id === existing.id ? rule : r)) : [...rules, rule])
     return
@@ -351,12 +361,44 @@ export async function findExisting(accountId: string, spec: RuleSpec): Promise<M
   // phrase and the sender is checked here.
   const unquote = (s: string) => s.replace(/"/g, '')
   const search = isGoogle(accountId)
-    ? [from && `from:(${from.replace(/[()]/g, '')})`, words && gmailPhrase(words)].filter(Boolean).join(' ')
+    ? [from && `from:(${from.replace(/[()]/g, '')})`, words && gmailPhrase(words), spec.except?.trim() && `-${gmailPhrase(spec.except)}`].filter(Boolean).join(' ')
     : isImap(accountId)
       ? [from && `from:"${unquote(from)}"`, words && `"${unquote(words)}"`].filter(Boolean).join(' ')
       : words || from
-  const r = await providerFor(accountId).list(accountId, { search, inbox: true }, MAX_EXISTING)
-  return r.messages.filter((m) => !from || `${m.from.email} ${m.from.name ?? ''}`.toLowerCase().includes(from))
+  const p = providerFor(accountId)
+  const r = await p.list(accountId, { search, inbox: true }, MAX_EXISTING)
+  const found = r.messages.filter((m) => !from || `${m.from.email} ${m.from.name ?? ''}`.toLowerCase().includes(from))
+  const except = spec.except?.trim() ?? ''
+  if (!words && !except) return found
+  // Searches are loose (separate words, other word forms, attachments): check each message's
+  // own subject and text, as the rule does. PEC servers' rules look at the subject only.
+  const subjectOnly = !!useSettings.getState().accounts.find((a) => a.id === accountId)?.imap?.pec
+  const texts = new Map<string, string>()
+  const threads = [...new Set(found.map((m) => m.threadId))]
+  const next = threads.entries()
+  await Promise.all(
+    Array.from({ length: 6 }, async () => {
+      for (const [, threadId] of next) {
+        try {
+          for (const m of await p.thread(accountId, threadId)) texts.set(m.id, subjectOnly ? m.subject : `${m.subject} ${htmlToText(m.bodyHtml)}`)
+        } catch {
+          // Unreadable: left out rather than guessed.
+        }
+      }
+    }),
+  )
+  return found.filter((m) => {
+    const text = texts.get(m.id)
+    return text !== undefined && matchesWords(text, words, except)
+  })
+}
+
+const squash = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase()
+
+/** The rule's test on a message's text: contains `words` as typed (any case), and not `except`. */
+export function matchesWords(text: string, words: string, except = '') {
+  const t = squash(text)
+  return (!words.trim() || t.includes(squash(words))) && (!except.trim() || !t.includes(squash(except)))
 }
 
 /** Does to existing messages what the rule does to new ones. */

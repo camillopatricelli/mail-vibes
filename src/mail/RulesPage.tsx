@@ -151,7 +151,11 @@ function AccountRules({ account, onEdit, onAdd }: { account: AccountSettings; on
 /** "From ann@example.com · containing "invoice" → mark as read, move to Clients". */
 function RuleSummary({ spec, folders }: { spec: RuleSpec; folders?: MailFolder[] }) {
   const { t } = useTranslation()
-  const when = [spec.from.trim() && t('rules.fromIs', { from: spec.from.trim() }), spec.words.trim() && t('rules.contains', { words: spec.words.trim() })].filter(Boolean)
+  const when = [
+    spec.from.trim() && t('rules.fromIs', { from: spec.from.trim() }),
+    spec.words.trim() && t('rules.contains', { words: spec.words.trim() }),
+    spec.except?.trim() && t('rules.notContaining', { words: spec.except.trim() }),
+  ].filter(Boolean)
   const m = spec.move
   const what = [
     spec.markRead && t('rules.doMarkRead'),
@@ -169,6 +173,29 @@ function RuleSummary({ spec, folders }: { spec: RuleSpec; folders?: MailFolder[]
   )
 }
 
+/** A few sample rules, shown from the form's Examples button. */
+function RuleExamples() {
+  const { t } = useTranslation()
+  return (
+    <div className="rule-examples" role="region" aria-label={t('rules.examplesTitle')}>
+      <p className="title-small">{t('rules.examplesTitle')}</p>
+      <ul>
+        {(['sender', 'domain', 'word', 'phrase', 'except'] as const).map((k) => (
+          <li key={k} className="body-small">
+            <span className="body-medium">
+              {t('rules.when')} {t(`rules.ex.${k}.when`)}
+              <Icon name="chevron_right" size={16} className="rule-row__arrow" />
+              {t(`rules.ex.${k}.then`)}
+            </span>
+            <span className="muted">{t(`rules.ex.${k}.note`)}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="body-small muted">{t('rules.examplesNote')}</p>
+    </div>
+  )
+}
+
 type MoveChoice = 'none' | 'archive' | 'folder' | 'delete'
 
 function RuleDialog({ accountId, rule, from, onClose }: { accountId: string; rule?: MailRule; from?: string; onClose: () => void }) {
@@ -179,6 +206,7 @@ function RuleDialog({ accountId, rule, from, onClose }: { accountId: string; rul
   const [spec, setSpec] = useState<RuleSpec>(start ?? { from: from ?? '', words: '', markRead: false, move: { kind: 'none' } })
   const [folderId, setFolderId] = useState(start?.move.kind === 'folder' ? start.move.id : '')
   const [alsoExisting, setAlsoExisting] = useState(false)
+  const [showExamples, setShowExamples] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [matches, setMatches] = useState<MailSummary[] | null>(null)
@@ -283,7 +311,13 @@ function RuleDialog({ accountId, rule, from, onClose }: { accountId: string; rul
       >
         <p className="body-small muted">{account?.email}</p>
         <fieldset>
-          <legend className="title-small">{t('rules.when')}</legend>
+          <legend className="title-small rule-form__head">
+            <span>{t('rules.when')}</span>
+            <Button variant="text" icon="help" onClick={() => setShowExamples((v) => !v)} aria-expanded={showExamples}>
+              {t('rules.examples')}
+            </Button>
+          </legend>
+          {showExamples && <RuleExamples />}
           <label className="rule-form__field">
             <span className="body-medium">{t('rules.from')}</span>
             <input
@@ -298,6 +332,10 @@ function RuleDialog({ accountId, rule, from, onClose }: { accountId: string; rul
           <label className="rule-form__field">
             <span className="body-medium">{t('rules.containsLabel')}</span>
             <input className="text-field text-field--outlined" value={spec.words} onChange={(e) => setSpec({ ...spec, words: e.target.value })} />
+          </label>
+          <label className="rule-form__field">
+            <span className="body-medium">{t('rules.exceptLabel')}</span>
+            <input className="text-field text-field--outlined" value={spec.except ?? ''} onChange={(e) => setSpec({ ...spec, except: e.target.value })} />
           </label>
           <p className="body-small muted">{t('rules.conditionsHint')}</p>
         </fieldset>

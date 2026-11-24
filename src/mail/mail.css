@@ -370,6 +370,10 @@
 .rule-form { display: flex; flex-direction: column; gap: 16px; min-width: min(480px, 80vw); }
 .rule-form fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .rule-form legend { padding: 0; margin-bottom: 6px; }
+.rule-form .rule-form__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; margin-bottom: 0; }
+.rule-examples { padding: 12px 14px; border-radius: var(--md-sys-shape-md); background: var(--md-sys-color-surface-container-high); display: flex; flex-direction: column; gap: 8px; }
+.rule-examples ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.rule-examples li { display: flex; flex-direction: column; gap: 2px; }
 .rule-form__field { display: flex; flex-direction: column; gap: 4px; }
 .rule-form__moves { display: flex; flex-direction: column; gap: 8px; }
 .rule-form p { margin: 0; }

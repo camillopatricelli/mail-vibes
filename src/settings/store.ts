@@ -45,6 +45,8 @@ export interface ImapRule {
   id: string
   from: string
   words: string
+  /** Words that make the rule skip a message */
+  except?: string
   markRead: boolean
   move: ImapRuleMove
 }
@@ -408,7 +410,7 @@ function parseImapRule(v: unknown): ImapRule | undefined {
   else return undefined
   const markRead = r.markRead === true
   if (!markRead && move.kind === 'none') return undefined
-  return { id: r.id, from: r.from, words: r.words, markRead, move }
+  return { id: r.id, from: r.from, words: r.words, ...(isStr(r.except) && r.except.trim() ? { except: r.except } : {}), markRead, move }
 }
 
 // ---------- Microsoft 365 organisations ----------

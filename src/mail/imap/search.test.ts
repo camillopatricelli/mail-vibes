@@ -21,6 +21,8 @@ describe('IMAP search', () => {
     expect(flat(ruleCriteria({ from: '', words: 'fattura' }, false, 7))).toBe('UID 7:* TEXT <fattura>')
     expect(flat(ruleCriteria({ from: 'x', words: 'perché' }, true, 7))).toBe('CHARSET UTF-8 UID 7:* FROM <x> SUBJECT <perché>')
     expect(ruleCriteria({ from: ' ', words: '' }, false, 1)).toBeUndefined()
+    expect(flat(ruleCriteria({ from: '', words: 'backup', except: 'failed' }, false, 3))).toBe('UID 3:* TEXT <backup> NOT TEXT <failed>')
+    expect(flat(ruleCriteria({ from: '', words: 'backup', except: 'failed' }, true, 3))).toBe('UID 3:* SUBJECT <backup> NOT SUBJECT <failed>')
   })
 
   it('reads COPYUID to give moved messages their new ids', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gmailPhrase, gmailToSpec, outlookToSpec, specToGmail, specToOutlook, type RuleSpec } from './rules'
+import { gmailPhrase, gmailToSpec, matchesWords, outlookToSpec, specToGmail, specToOutlook, type RuleSpec } from './rules'
 
 const spec = (s: Partial<RuleSpec>): RuleSpec => ({ from: '', words: '', markRead: false, move: { kind: 'none' }, ...s })
 
@@ -38,6 +38,13 @@ describe('Gmail filters', () => {
   it('quotes phrases only', () => {
     expect(gmailPhrase(' hello ')).toBe('hello')
     expect(gmailPhrase('a "few" words')).toBe('"a few words"')
+    expect(gmailPhrase('job:')).toBe('"job:"')
+  })
+
+  it('puts "but not" in the negated query, and reads it back', () => {
+    const s = spec({ words: 'backup', except: 'job failed', move: { kind: 'archive' } })
+    expect(specToGmail(s).criteria).toEqual({ query: 'backup', negatedQuery: '"job failed"' })
+    expect(gmailToSpec(specToGmail(s))).toEqual(s)
   })
 })
 
@@ -52,6 +59,22 @@ describe('Outlook rules', () => {
       conditions: { senderContains: ['somewhere.com'] },
       actions: { delete: true },
     })
+  })
+
+  it('puts "but not" in the exceptions, and reads it back', () => {
+    const s = spec({ from: 'a@b.c', words: 'backup', except: 'failed', move: { kind: 'delete' } })
+    const o = specToOutlook(s, 'ARCH')
+    expect(o.exceptions).toEqual({ bodyOrSubjectContains: ['failed'] })
+    expect(outlookToSpec({ displayName: 'X', ...o })).toEqual({ ...s, name: 'X' })
+    expect(outlookToSpec({ conditions: { senderContains: ['x'] }, actions: { markAsRead: true }, exceptions: { bodyOrSubjectContains: ['a', 'b'] } })).toBeUndefined()
+  })
+
+  it('matches the words as typed, ignoring case and spacing', () => {
+    expect(matchesWords('Backup report: Job:  SUCCESSFUL', 'job: successful')).toBe(true)
+    expect(matchesWords('Job completed. Successful', 'job: successful')).toBe(false)
+    expect(matchesWords('Backup failed', 'backup', 'failed')).toBe(false)
+    expect(matchesWords('Backup done', 'backup', 'failed')).toBe(true)
+    expect(matchesWords('anything', '', 'failed')).toBe(true)
   })
 
   it('leaves unused fields out', () => {
