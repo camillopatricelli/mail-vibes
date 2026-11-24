@@ -65,6 +65,8 @@ export function Dialog({
 export interface MenuItem {
   label: string
   icon?: IconName
+  /** A picture in place of the icon (e.g. a site's logo) */
+  media?: ReactNode
   onSelect: () => void
   disabled?: boolean
   danger?: boolean
@@ -134,7 +136,7 @@ export function Menu({
                   it.onSelect()
                 }}
               >
-                {it.icon && <Icon name={it.icon} size={20} />}
+                {it.media ?? (it.icon && <Icon name={it.icon} size={20} />)}
                 <span>{it.label}</span>
               </button>
             ))}

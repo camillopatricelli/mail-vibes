@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import type { LanguagePref } from '../i18n'
 import { microsoftTenants, type MicrosoftTenantConfig } from '../config'
 import i18n from '../i18n'
+import { parseShortcuts, type Shortcut } from '../shell/shortcutData'
 
 /**
  * Settings are the ONLY app data persisted on the device (plus the auth libraries' token caches).
@@ -121,6 +122,8 @@ export interface Settings {
   bridge?: { url: string; key: string }
   /** Include the bridge address and access key in the settings export file */
   exportBridge: boolean
+  /** Custom links under Notes in the navigation */
+  shortcuts: Shortcut[]
 }
 
 /** Calendar, tasks and contacts exist only for Google and Microsoft 365 accounts (not IMAP). */
@@ -173,6 +176,7 @@ export const defaultSettings: Settings = {
   weekStart: 'monday',
   weather: true,
   exportBridge: false,
+  shortcuts: [],
 }
 
 interface SettingsActions {
@@ -267,6 +271,7 @@ export function pickSettings(s: Settings): Settings {
     mapsApiKey: s.mapsApiKey || undefined,
     bridge: s.bridge?.url ? { url: s.bridge.url, key: s.bridge.key ?? '' } : undefined,
     exportBridge: s.exportBridge ?? false,
+    shortcuts: s.shortcuts ?? [],
   }
 }
 
@@ -316,6 +321,7 @@ export function parseSettingsJson(text: string): Settings {
   if (typeof s.notifyAtStart === 'boolean') out.notifyAtStart = s.notifyAtStart
   if (s.weekStart === 'monday' || s.weekStart === 'sunday' || s.weekStart === 'auto') out.weekStart = s.weekStart
   if (typeof s.weather === 'boolean') out.weather = s.weather
+  out.shortcuts = parseShortcuts(s.shortcuts)
   if (isStr(s.mapsApiKey) && /^[\w-]{20,60}$/.test(s.mapsApiKey.trim())) out.mapsApiKey = s.mapsApiKey.trim()
   if (s.bridge && isStr(s.bridge.url) && /^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(s.bridge.url) && isStr(s.bridge.key)) {
     out.bridge = { url: s.bridge.url, key: s.bridge.key }

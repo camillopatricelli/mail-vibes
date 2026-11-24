@@ -33,6 +33,8 @@ import { AccountBadge, Button, Card, IconButton } from '../ui/components'
 import { Dialog } from '../ui/overlay'
 import { addGoogle, addMicrosoft, removeAccount, replaceSetup } from '../auth/accounts'
 import { googleConfigured, googleSignInState, preloadGoogle } from '../auth/google'
+import { ShortcutIcon } from '../shell/Shortcuts'
+import { MAX_NAME, MAX_SHORTCUTS, normalizeUrl, type Shortcut } from '../shell/shortcutData'
 
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -301,6 +303,91 @@ function TenantsSection() {
 }
 
 /** IMAP accounts need the user's bridge (Settings → IMAP bridge). */
+function ShortcutsSection() {
+  const { t } = useTranslation()
+  const shortcuts = useSettings((s) => s.shortcuts)
+  const update = useSettings((s) => s.update)
+  const [name, setName] = useState('')
+  const [url, setUrl] = useState('')
+  const [error, setError] = useState('')
+  const set = (list: Shortcut[]) => update({ shortcuts: list })
+  const change = (id: string, patch: Partial<Shortcut>) => set(shortcuts.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+  const swap = (i: number, j: number) => {
+    const list = [...shortcuts]
+    ;[list[i], list[j]] = [list[j], list[i]]
+    set(list)
+  }
+  const add = () => {
+    const address = normalizeUrl(url)
+    if (!name.trim()) return setError(t('shortcuts.needName'))
+    if (!address) return setError(t('shortcuts.badUrl'))
+    set([...shortcuts, { id: crypto.randomUUID(), name: name.trim().slice(0, MAX_NAME), url: address }])
+    setName('')
+    setUrl('')
+    setError('')
+  }
+
+  return (
+    <Section title={t('shortcuts.section')} hint={t('shortcuts.hint', { count: MAX_SHORTCUTS })}>
+      {shortcuts.map((s, i) => (
+        <div key={s.id} className="shortcut-row">
+          <ShortcutIcon s={s} size={28} />
+          <div className="shortcut-row__text">
+            <InlineText className="title-small" value={s.name} label={t('shortcuts.name')} onCommit={(v) => v.trim() && change(s.id, { name: v.trim().slice(0, MAX_NAME) })} />
+            <InlineText
+              className="body-small"
+              value={s.url}
+              label={t('shortcuts.url')}
+              onCommit={(v) => {
+                const address = normalizeUrl(v)
+                if (address) change(s.id, { url: address })
+                else useStatus.getState().toast({ tone: 'error', message: t('shortcuts.badUrl') })
+              }}
+            />
+          </div>
+          <IconButton icon="keyboard_arrow_up" label={t('shortcuts.up', { name: s.name })} disabled={i === 0} onClick={() => swap(i, i - 1)} />
+          <IconButton icon="keyboard_arrow_down" label={t('shortcuts.down', { name: s.name })} disabled={i === shortcuts.length - 1} onClick={() => swap(i, i + 1)} />
+          <IconButton icon="delete" label={t('shortcuts.remove', { name: s.name })} onClick={() => set(shortcuts.filter((x) => x.id !== s.id))} />
+        </div>
+      ))}
+      {shortcuts.length < MAX_SHORTCUTS ? (
+        <form
+          className="shortcut-form"
+          onSubmit={(e) => {
+            e.preventDefault()
+            add()
+          }}
+        >
+          <Field label={t('shortcuts.name')}>
+            <input className="text-field text-field--outlined" value={name} maxLength={MAX_NAME} placeholder={t('shortcuts.namePlaceholder')} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label={t('shortcuts.url')}>
+            <input
+              className="text-field text-field--outlined"
+              value={url}
+              inputMode="url"
+              spellCheck={false}
+              autoComplete="off"
+              placeholder="intranet.example.com"
+              onChange={(e) => setUrl(e.target.value)}
+            />
+          </Field>
+          <Button variant="tonal" icon="add" type="submit">
+            {t('shortcuts.add')}
+          </Button>
+          {error && (
+            <p className="body-small field-error shortcut-form__error" role="alert">
+              {error}
+            </p>
+          )}
+        </form>
+      ) : (
+        <p className="body-small muted">{t('shortcuts.full', { count: MAX_SHORTCUTS })}</p>
+      )}
+    </Section>
+  )
+}
+
 function AddImapButton() {
   const { t } = useTranslation()
   const bridge = useSettings((s) => s.bridge)
@@ -516,6 +603,8 @@ export function SettingsPage() {
         <ContactsStatus />
         <DefaultSelect label={t('settings.defaultNotes')} field="notesAccountId" provider="google" />
       </Section>
+
+      <ShortcutsSection />
 
       <Section title={t('settings.calendar')}>
         <Field label={t('settings.weekStart')}>

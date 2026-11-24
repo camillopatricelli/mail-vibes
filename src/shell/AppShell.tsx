@@ -9,6 +9,8 @@ import { accountLabel, useSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 import { FilterChip, Icon, IconButton, type IconName } from '../ui/components'
 import { Banners, Toasts } from './Banners'
+import { openShortcut, RailShortcuts, ShortcutIcon } from './Shortcuts'
+import { Menu } from '../ui/overlay'
 import { ComposerStack } from '../mail/Composer'
 import { useNotifyReminder } from './reminders'
 import { useContactsSync } from '../contacts/contacts'
@@ -29,6 +31,7 @@ function NotesButton({ asRailItem }: { asRailItem?: boolean }) {
   const { t } = useTranslation()
   const accounts = useSettings((s) => s.accounts)
   const notesId = useSettings((s) => s.defaults.notesAccountId)
+  const shortcuts = useSettings((s) => s.shortcuts)
   const email = accounts.find((a) => a.id === notesId)?.email
   const open = () => window.open(keepUrl(email), '_blank', 'noopener,noreferrer')
   if (asRailItem)
@@ -39,6 +42,18 @@ function NotesButton({ asRailItem }: { asRailItem?: boolean }) {
         </span>
         <span className="label-medium">{t('nav.notes')}</span>
       </button>
+    )
+  // Phones: with shortcuts, one button opens Notes and the shortcuts (the top bar has room for one).
+  if (shortcuts.length)
+    return (
+      <Menu
+        label={t('nav.links')}
+        trigger={(p) => <IconButton icon="apps" label={t('nav.links')} {...p} />}
+        items={[
+          { label: t('nav.notes'), icon: 'sticky_note_2', onSelect: open },
+          ...shortcuts.map((s) => ({ label: s.name, media: <ShortcutIcon s={s} size={20} />, onSelect: () => openShortcut(s) })),
+        ]}
+      />
     )
   return <IconButton icon="sticky_note_2" label={t('nav.notes')} onClick={open} />
 }
@@ -110,6 +125,7 @@ function NavRail({ active }: { active: Route | null }) {
       ))}
       <div className="rail__spacer" />
       <NotesButton asRailItem />
+      <RailShortcuts />
     </nav>
   )
 }

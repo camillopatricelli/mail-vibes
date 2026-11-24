@@ -64,8 +64,13 @@
   align-items: center;
   gap: 12px;
   padding: 8px 0 16px;
+  /* Shortcuts can outgrow short windows: the rail scrolls rather than cutting them off. */
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
 }
-.rail__spacer { flex: 1; }
+.rail__spacer { flex: 1 0 8px; }
+.rail__shortcut { margin-top: -4px; }
 .rail__item,
 .bottom-nav__item {
   display: flex;
@@ -390,6 +395,26 @@ select optgroup {
 .tenant-row__text p { margin: 0; overflow-wrap: anywhere; }
 .tenant-row code { font-size: 11px; }
 .tenant-form { display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: var(--md-sys-shape-sm); background: var(--md-sys-color-surface); }
+
+/* Shortcuts (Settings, navigation rail, phone menu) */
+.shortcut-icon { display: block; object-fit: contain; border-radius: 6px; flex: none; }
+.shortcut-tile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 30%;
+  color: #fff;
+  font-weight: 600;
+  line-height: 1;
+  font-family: var(--md-sys-typescale-font, inherit);
+}
+.rail__shortcut-name { max-width: 68px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shortcut-row { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-radius: var(--md-sys-shape-sm); background: var(--md-sys-color-surface); }
+.shortcut-row__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.shortcut-row__text .text-field { width: 100%; min-width: 0; }
+.shortcut-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; align-items: end; gap: 12px; }
+.shortcut-form__error { grid-column: 1 / -1; }
+@media (max-width: 599px) { .shortcut-form { grid-template-columns: minmax(0, 1fr); } }
 
 .prose { max-width: 680px; }
 .settings-key { width: 26em; max-width: 100%; min-width: 0; font-family: ui-monospace, monospace; }

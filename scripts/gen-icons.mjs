@@ -14,7 +14,7 @@ dark_mode light_mode filter_list cloud_off link today event home code
 location_on group repeat help view_day view_week view_agenda subject calendar_view_month add_task content_copy
 unfold_less unfold_more date_range snooze alarm_off schedule_send cancel_schedule_send create_new_folder
 sunny bedtime partly_cloudy_day partly_cloudy_night cloud foggy rainy_light rainy rainy_heavy weather_mix
-weather_snowy snowing snowing_heavy thunderstorm weather_hail wb_twilight my_location
+weather_snowy snowing snowing_heavy thunderstorm weather_hail wb_twilight my_location apps
 `.trim().split(/\s+/)
 
 const dir = 'node_modules/@material-symbols/svg-400/outlined'
