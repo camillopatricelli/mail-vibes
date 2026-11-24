@@ -114,6 +114,22 @@ export const calendarActions = {
     toast(i18n.t('calendar.saved'))
     void refreshAccount(e.accountId)
   },
+  /**
+   * New times for one event (one occurrence of a series), from dragging it. Resolves once the
+   * calendar has reloaded, so the event doesn't jump back meanwhile. The toast offers Undo.
+   */
+  async move(e: CalEvent, start: number, end: number) {
+    await calendarFor(e.accountId).update(e.accountId, e.calendarId, e.id, { start, end, allDay: e.allDay })
+    useStatus.getState().toast({
+      tone: 'success',
+      message: i18n.t('calendar.moved'),
+      action: {
+        label: i18n.t('mail.undo'),
+        run: () => void calendarActions.move({ ...e, start, end }, e.start, e.end).catch((err: Error) => toast(i18n.t('calendar.moveFailed', { reason: err.message }), 'error')),
+      },
+    })
+    await refreshAccount(e.accountId)
+  },
   /** Deletes one event; for a recurring one also "this and following" or the whole series. */
   async remove(e: CalEvent, scope: 'one' | 'following' | 'all' = 'one') {
     const p = calendarFor(e.accountId)

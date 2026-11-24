@@ -6,7 +6,10 @@ import { navigate, useLocation } from '../lib/router'
 import { AccountBadge, Button, Icon, IconButton, type IconName } from '../ui/components'
 import { Dialog, Spinner } from '../ui/overlay'
 import { calendarKey } from './api'
-import { toggleCalendar, useCalendars, useEvents, type ShownEvent } from './data'
+import { useStatus } from '../status/store'
+import { calendarActions, toggleCalendar, useCalendars, useEvents, type ShownEvent } from './data'
+import { canMove } from './drag'
+import { eventKey, useEventDrag } from './useEventDrag'
 import {
   addDays,
   DAY,
@@ -34,10 +37,23 @@ const isPhone = () => window.matchMedia('(max-width: 839px)').matches
 /** Long timed events (a day or more) are shown in the all-day row, as Google Calendar does. */
 const inAllDayRow = (e: ShownEvent) => e.allDay || e.end - e.start >= DAY
 
-function chipClass(e: ShownEvent) {
-  return ['event-chip', e.myResponse === 'declined' && 'is-declined', e.myResponse === 'needsAction' && 'is-pending', e.cancelled && 'is-declined']
+function chipClass(e: ShownEvent, dragging?: string | null) {
+  return [
+    'event-chip',
+    e.myResponse === 'declined' && 'is-declined',
+    e.myResponse === 'needsAction' && 'is-pending',
+    e.cancelled && 'is-declined',
+    canMove(e) && 'is-movable',
+    dragging === eventKey(e) && 'is-dragging',
+  ]
     .filter(Boolean)
     .join(' ')
+}
+
+/** What the grids need to let events be dragged. */
+interface DragProps {
+  start: ReturnType<typeof useEventDrag>['start']
+  dragging: string | null
 }
 
 const chipStyle = (e: ShownEvent) => ({ '--event-color': e.color, '--account-color': e.accountColor }) as React.CSSProperties
@@ -84,10 +100,17 @@ function CalendarList() {
   )
 }
 
-function EventChip({ e, onOpen, showTime = true }: { e: ShownEvent; onOpen: (e: ShownEvent) => void; showTime?: boolean }) {
+function EventChip({ e, onOpen, showTime = true, drag }: { e: ShownEvent; onOpen: (e: ShownEvent) => void; showTime?: boolean; drag?: DragProps }) {
   const { t } = useTranslation()
   return (
-    <button type="button" className={chipClass(e)} style={chipStyle(e)} onClick={(ev) => (ev.stopPropagation(), onOpen(e))} title={e.title}>
+    <button
+      type="button"
+      className={chipClass(e, drag?.dragging)}
+      style={chipStyle(e)}
+      onClick={(ev) => (ev.stopPropagation(), onOpen(e))}
+      onPointerDown={drag?.start(e, 'move', 'days')}
+      title={e.title}
+    >
       {showTime && !inAllDayRow(e) && <span className="event-chip__time">{timeOf(e.start)}</span>}
       <span className="event-chip__title">{e.title || t('calendar.noTitle')}</span>
     </button>
@@ -99,11 +122,13 @@ function TimeGrid({
   events,
   onOpen,
   onCreate,
+  drag,
 }: {
   days: number[]
   events: ShownEvent[]
   onOpen: (e: ShownEvent) => void
   onCreate: (t: EditorTarget) => void
+  drag: DragProps
 }) {
   const { t } = useTranslation()
   const now = useNow(60_000)
@@ -139,9 +164,15 @@ function TimeGrid({
       <div className="time-grid__allday">
         <div className="time-grid__gutter label-small muted">{allDay.length ? t('calendar.allDayShort') : ''}</div>
         {days.map((d) => (
-          <div key={d} className="time-grid__allday-cell" onDoubleClick={() => onCreate({ mode: 'create', start: d, end: addDays(d, 1), allDay: true })}>
+          <div
+            key={d}
+            className="time-grid__allday-cell"
+            data-day={d}
+            data-days=""
+            onDoubleClick={() => onCreate({ mode: 'create', start: d, end: addDays(d, 1), allDay: true })}
+          >
             {allDay.filter((e) => onDay(e, d)).map((e) => (
-              <EventChip key={`${e.accountId}|${e.calendarId}|${e.id}`} e={e} onOpen={onOpen} />
+              <EventChip key={eventKey(e)} e={e} onOpen={onOpen} drag={drag} />
             ))}
           </div>
         ))}
@@ -166,6 +197,7 @@ function TimeGrid({
             <div
               key={d}
               className="time-grid__col"
+              data-day={d}
               onClick={(ev) => {
                 const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect()
                 const minutes = Math.floor(((ev.clientY - rect.top) / HOUR_PX) * 2) * 30
@@ -182,14 +214,15 @@ function TimeGrid({
                 const e = item.e
                 return (
                   <button
-                    key={`${e.accountId}|${e.calendarId}|${e.id}`}
+                    key={eventKey(e)}
                     type="button"
-                    className={`${chipClass(e)} event-block`}
+                    className={`${chipClass(e, drag.dragging)} event-block`}
                     style={{ ...chipStyle(e), top, height, left: `${(col / cols) * 100}%`, width: `calc(${100 / cols}% - 2px)` }}
                     onClick={(ev) => {
                       ev.stopPropagation()
                       onOpen(e)
                     }}
+                    onPointerDown={drag.start(e, 'move', 'timed', scroller.current)}
                     title={`${e.title} · ${timeOf(e.start)} – ${timeOf(e.end)}`}
                   >
                     <span className="event-chip__title">{e.title || t('calendar.noTitle')}</span>
@@ -197,6 +230,10 @@ function TimeGrid({
                       <span className="event-block__time">
                         {timeOf(e.start)} – {timeOf(e.end)}
                       </span>
+                    )}
+                    {/* The bottom edge changes the end time, on the event's last day. */}
+                    {item.end === e.end && canMove(e) && (
+                      <span className="event-block__resize" title={t('calendar.resizeHandle')} onPointerDown={drag.start(e, 'resize', 'timed', scroller.current)} />
                     )}
                   </button>
                 )
@@ -216,12 +253,14 @@ function MonthGrid({
   events,
   onOpen,
   onCreate,
+  drag,
 }: {
   from: number
   month: number
   events: ShownEvent[]
   onOpen: (e: ShownEvent) => void
   onCreate: (t: EditorTarget) => void
+  drag: DragProps
 }) {
   const { t } = useTranslation()
   const now = useNow(60_000)
@@ -241,6 +280,8 @@ function MonthGrid({
           <div
             key={d}
             className={['month-grid__cell', other && 'is-other'].filter(Boolean).join(' ')}
+            data-day={d}
+            data-days=""
             onClick={() => onCreate({ mode: 'create', start: d + 9 * 3_600_000, end: d + 10 * 3_600_000, allDay: false })}
           >
             <button
@@ -251,7 +292,7 @@ function MonthGrid({
               {new Date(d).getDate()}
             </button>
             {list.slice(0, max).map((e) => (
-              <EventChip key={`${e.accountId}|${e.calendarId}|${e.id}`} e={e} onOpen={onOpen} />
+              <EventChip key={eventKey(e)} e={e} onOpen={onOpen} drag={drag} />
             ))}
             {list.length > max && (
               <button type="button" className="month-grid__more label-small" onClick={(ev) => (ev.stopPropagation(), navigate('calendar', 'day', toDateKey(d)))}>
@@ -311,6 +352,30 @@ export function CalendarPage() {
   const [editor, setEditor] = useState<EditorTarget | null>(null)
   const [showCalendars, setShowCalendars] = useState(false)
   const canCreate = accounts.length > 0
+
+  // Dragged events: their times while dragging, then until the calendar has reloaded after the save.
+  const [moving, setMoving] = useState<Record<string, { start: number; end: number }>>({})
+  const drag = useEventDrag(HOUR_PX, (e, start, end) => {
+    if (e.attendees.length && !confirm(t('calendar.moveNotifies'))) return
+    const key = eventKey(e)
+    setMoving((m) => ({ ...m, [key]: { start, end } }))
+    calendarActions
+      .move(e, start, end)
+      .catch((err: Error) => useStatus.getState().toast({ tone: 'error', message: t('calendar.moveFailed', { reason: err.message }) }))
+      .finally(() => setMoving(({ [key]: _done, ...rest }) => rest))
+  })
+  const preview = drag.preview
+  const shownEvents = useMemo(() => {
+    if (!preview && !Object.keys(moving).length) return events
+    return events
+      .map((e) => {
+        const key = eventKey(e)
+        const times = preview?.key === key ? preview : moving[key]
+        return times ? { ...e, start: times.start, end: times.end } : e
+      })
+      .sort((a, b) => a.start - b.start || b.end - a.end)
+  }, [events, preview, moving])
+  const dragProps: DragProps = { start: drag.start, dragging: preview?.key ?? null }
 
   const go = (v: View, d: number) => navigate('calendar', v, toDateKey(d))
   useEffect(() => {
@@ -390,11 +455,11 @@ export function CalendarPage() {
         {isLoading ? (
           <Spinner label={t('mail.loading')} />
         ) : view === 'month' ? (
-          <MonthGrid from={from} month={startOfMonth(date)} events={events} onOpen={setOpen} onCreate={create} />
+          <MonthGrid from={from} month={startOfMonth(date)} events={shownEvents} onOpen={setOpen} onCreate={create} drag={dragProps} />
         ) : view === 'agenda' ? (
-          <Agenda from={from} to={to} events={events} onOpen={setOpen} />
+          <Agenda from={from} to={to} events={shownEvents} onOpen={setOpen} />
         ) : (
-          <TimeGrid days={days} events={events} onOpen={setOpen} onCreate={create} />
+          <TimeGrid days={days} events={shownEvents} onOpen={setOpen} onCreate={create} drag={dragProps} />
         )}
       </div>
       {canCreate && (
