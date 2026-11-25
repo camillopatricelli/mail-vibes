@@ -6,7 +6,7 @@ import { useStatus } from '../status/store'
 import { canSend, isMailCapable, providerFor } from './api'
 import { isValidEmail } from './addressBook'
 import { refreshAccountMail } from './data'
-import { escapeHtml, htmlToText, sanitizeForEditor } from './html'
+import { escapeHtml, htmlToText, sanitizeForEditor, withSignature } from './html'
 import type { Address, Attachment, DraftContent, DraftRef, MailMessage, ReplyKind } from './types'
 
 /**
@@ -46,6 +46,8 @@ export interface Composer {
   forwardFiles?: File[]
   /** Forwarded from an account that can't send (see openForwardFrom) */
   forwardFrom?: boolean
+  /** The signature last put in the message (by the user or as the account's default) */
+  signatureId?: string
 }
 
 interface ComposeState {
@@ -77,8 +79,41 @@ function serial<T>(id: string, fn: () => Promise<T>): Promise<T> {
 }
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
+/** True if the body has nothing but (perhaps) the signature. */
+function bodyIsEmpty(html: string) {
+  const own = withSignature(html, null)
+  return !htmlToText(own) && !/<img/i.test(own)
+}
+
 function isEmpty(c: DraftContent) {
-  return !c.to.length && !c.cc.length && !c.bcc.length && !c.subject.trim() && !htmlToText(c.html) && !/<img/i.test(c.html)
+  return !c.to.length && !c.cc.length && !c.bcc.length && !c.subject.trim() && bodyIsEmpty(c.html)
+}
+
+// ---------- Signatures ----------
+
+/** The signature an account adds by itself: to new messages, and to replies/forwards if chosen. */
+function defaultSignature(accountId: string, reply: boolean) {
+  const s = useSettings.getState()
+  const d = s.signatureDefaults[accountId]
+  if (!d || (reply && !d.replies)) return undefined
+  return s.signatures.find((x) => x.id === d.id)
+}
+
+/** The body with the account's default signature added, if it has one. */
+function withDefaultSignature(html: string, accountId: string, reply: boolean) {
+  const sig = defaultSignature(accountId, reply)
+  return { html: sig ? withSignature(html, sig.html) : html, signatureId: sig?.id }
+}
+
+/** Puts a signature in the message, replacing the one there; null removes it. */
+export function setSignature(id: string, signatureId: string | null) {
+  const c = get(id)
+  if (!c) return
+  const sig = signatureId ? useSettings.getState().signatures.find((x) => x.id === signatureId) : undefined
+  const html = withSignature(c.content.html, sig ? sig.html : null)
+  // A new initialHtml makes the editor show the changed body.
+  patch(id, { signatureId: sig?.id, initialHtml: html })
+  updateContent(id, { html })
 }
 
 /** Creates the server draft if needed. Must run inside `serial`. */
@@ -142,13 +177,15 @@ export function openNew(accountId = defaultSendAccount(), prefill?: Partial<Draf
     useStatus.getState().toast({ tone: 'error', message: t('compose.noAccount') })
     return
   }
-  const content = { ...emptyContent(), ...prefill }
+  const signed = withDefaultSignature(prefill?.html ?? '', accountId, false)
+  const content = { ...emptyContent(), ...prefill, html: signed.html }
   useCompose.getState().add({
     id: newId(),
     accountId,
     mode: 'new',
     content,
     initialHtml: content.html,
+    signatureId: signed.signatureId,
     attachments: [],
     uploads: [],
     phase: 'ready',
@@ -160,13 +197,15 @@ export function openNew(accountId = defaultSendAccount(), prefill?: Partial<Draf
 /** Reply/forward: the draft is created right away, from the account that received the message. */
 export async function openReply(message: MailMessage, kind: ReplyKind) {
   const id = newId()
+  const signed = withDefaultSignature('', message.accountId, true)
   useCompose.getState().add({
     id,
     accountId: message.accountId,
     mode: kind,
     sourceMessageId: message.id,
-    content: { ...emptyContent(), subject: message.subject },
-    initialHtml: '',
+    content: { ...emptyContent(), subject: message.subject, html: signed.html },
+    initialHtml: signed.html,
+    signatureId: signed.signatureId,
     attachments: [],
     uploads: [],
     phase: 'preparing',
@@ -190,12 +229,14 @@ export async function openForwardFrom(message: MailMessage) {
     return
   }
   const date = new Date(message.date).toLocaleString(i18n.language, { dateStyle: 'full', timeStyle: 'short' })
-  const html =
+  const quoted =
     `<p></p><div class="gmail_quote">${escapeHtml(t('compose.forwardHeader'))}<br>` +
     `${escapeHtml(t('compose.fieldFrom'))}: ${who(message.from)}<br>` +
     `${escapeHtml(t('compose.fieldDate'))}: ${escapeHtml(date)}<br>` +
     `${escapeHtml(t('compose.subject'))}: ${escapeHtml(message.subject)}<br>` +
     `${escapeHtml(t('compose.to'))}: ${message.to.map(who).join(', ')}<br><br>${sanitizeForEditor(message.bodyHtml)}</div>`
+  const signed = withDefaultSignature(quoted, accountId, true)
+  const html = signed.html
   const id = newId()
   useCompose.getState().add({
     id,
@@ -210,6 +251,7 @@ export async function openForwardFrom(message: MailMessage) {
     minimized: false,
     note: message.pec ? t('imap.pecForwardNote') : undefined,
     forwardFrom: true,
+    signatureId: signed.signatureId,
   })
   scheduleSave(id)
   try {
@@ -248,8 +290,10 @@ export async function prepareReply(id: string) {
         content: { ...created.content, html: now.content.html },
         attachments: attachments.filter((a) => !a.isInline),
         phase: 'ready',
-        saveState: 'saved',
+        // The draft was created empty: a signature (or text typed meanwhile) still needs saving.
+        saveState: now.content.html ? 'dirty' : 'saved',
       })
+      if (now.content.html) scheduleSave(id)
     })
   } catch (e) {
     patch(id, { phase: 'ready', error: t('compose.prepareFailed', { reason: (e as Error).message }) })
@@ -296,6 +340,13 @@ export async function changeAccount(id: string, accountId: string) {
     }
     patch(id, { accountId, draft: undefined, attachments: [], saveState: 'dirty' })
   })
+  // The old account's default signature gives way to the new account's (one picked by hand stays).
+  const now = get(id)
+  if (now?.signatureId && now.signatureId === defaultSignature(c.accountId, false)?.id) setSignature(id, defaultSignature(accountId, false)?.id ?? null)
+  else if (now && !now.signatureId && bodyIsEmpty(now.content.html)) {
+    const sig = defaultSignature(accountId, false)
+    if (sig) setSignature(id, sig.id)
+  }
   scheduleSave(id)
   const files = get(id)?.forwardFiles
   if (files?.length) await attachFiles(id, files)
@@ -394,7 +445,7 @@ export async function closeKeep(id: string) {
     ? !c0.to.length && !c0.cc.length && !c0.bcc.length && c0.html === c.initialHtml
     : c.mode === 'new'
       ? isEmpty(c.content) && !c.attachments.length
-      : c.mode !== 'draft' && !htmlToText(c.content.html) && !/<img/i.test(c.content.html)
+      : c.mode !== 'draft' && bodyIsEmpty(c.content.html)
   if (empty) return discard(id, true)
   try {
     await saveNow(id)

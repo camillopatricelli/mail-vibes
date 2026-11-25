@@ -412,6 +412,12 @@ select optgroup {
 .shortcut-row { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-radius: var(--md-sys-shape-sm); background: var(--md-sys-color-surface); }
 .shortcut-row__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .shortcut-row__text .text-field { width: 100%; min-width: 0; }
+.signature-row { display: flex; flex-direction: column; gap: 4px; padding: 4px 8px 4px 12px; border-radius: var(--md-sys-shape-sm); background: var(--md-sys-color-surface); }
+.signature-row__head { display: flex; align-items: center; gap: 4px; }
+.signature-row__name { flex: 1; min-width: 0; }
+.signature-editor { border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-xs); margin-bottom: 8px; }
+.signature-editor__text { min-height: 96px; padding: 8px 12px; }
+.signature-replies { display: inline-flex; align-items: center; gap: 6px; }
 .shortcut-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; align-items: end; gap: 12px; }
 .shortcut-form__error { grid-column: 1 / -1; }
 @media (max-width: 599px) { .shortcut-form { grid-template-columns: minmax(0, 1fr); } }

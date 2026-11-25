@@ -142,6 +142,46 @@ export function sanitizeForEditor(html: string) {
   })
 }
 
+/**
+ * A signature as stored and inserted: safe for the editor, and images only from web addresses
+ * (pasted pictures become data: images, which many recipients' mail programs hide or block).
+ */
+export function cleanSignatureHtml(html: string) {
+  const doc = new DOMParser().parseFromString(sanitizeForEditor(html), 'text/html')
+  doc.body.querySelectorAll('img').forEach((img) => {
+    if (!/^https?:\/\//i.test(img.getAttribute('src') ?? '')) img.remove()
+  })
+  return doc.body.innerHTML
+}
+
+/** The editable block holding the signature in a message being written. */
+const SIGNATURE_CLASS = 'mv-signature'
+
+/**
+ * The message body with its signature replaced by `signature` (or removed, if null). A new one goes
+ * at the end of what the user writes: before a forwarded message, if there is one in the body.
+ */
+export function withSignature(html: string, signature: string | null) {
+  const doc = new DOMParser().parseFromString(`<!doctype html><body>${html}</body>`, 'text/html')
+  const body = doc.body
+  body.querySelectorAll(`.${SIGNATURE_CLASS}`).forEach((el) => el.remove())
+  if (signature !== null) {
+    const block = doc.createElement('div')
+    block.className = SIGNATURE_CLASS
+    // An empty line between the text and the signature.
+    block.innerHTML = `<br>${cleanSignatureHtml(signature)}`
+    const quote = [...body.children].find((el) => el.matches('.gmail_quote'))
+    body.insertBefore(block, quote ?? null)
+    // A line to type on above the signature, in an empty message.
+    if (!block.previousSibling) body.insertBefore(doc.createElement('div'), block).appendChild(doc.createElement('br'))
+  } else {
+    // Without a signature, drop the empty typing line one may have left behind.
+    const only = body.childNodes.length === 1 ? body.firstElementChild : null
+    if (only?.tagName === 'DIV' && only.innerHTML === '<br>') only.remove()
+  }
+  return body.innerHTML
+}
+
 export function htmlToText(html: string) {
   const parsed = new DOMParser().parseFromString(html, 'text/html')
   return (parsed.body.textContent ?? '').replace(/\s+/g, ' ').trim()

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { RulesLink } from '../mail/RulesPage'
+import { SignatureSettings } from '../mail/Signatures'
 import { loadContacts } from '../contacts/contacts'
 import { NotificationSettings } from '../notify/NotificationSettings'
 import { BridgeSettings } from '../mail/imap/BridgeSettings'
@@ -602,6 +603,10 @@ export function SettingsPage() {
         <DefaultSelect label={t('settings.defaultContacts')} field="contactsAccountId" />
         <ContactsStatus />
         <DefaultSelect label={t('settings.defaultNotes')} field="notesAccountId" provider="google" />
+      </Section>
+
+      <Section title={t('signatures.section')} hint={t('signatures.hint')}>
+        <SignatureSettings Field={Field} />
       </Section>
 
       <ShortcutsSection />

@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { fileSize } from '../lib/format'
 import { useSettings } from '../settings/store'
 import { Button, Icon, IconButton } from '../ui/components'
-import { Spinner } from '../ui/overlay'
+import { navigate } from '../lib/router'
+import { Menu, Spinner } from '../ui/overlay'
 import { canSend, isMailCapable } from './api'
 import { formatAddress, isValidEmail, parseAddresses, suggestAddresses } from './addressBook'
 import {
@@ -15,6 +16,7 @@ import {
   removeAttachment,
   saveNow,
   send,
+  setSignature,
   updateContent,
   useCompose,
   type Composer,
@@ -179,6 +181,28 @@ function Editor({ c }: { c: Composer }) {
   )
 }
 
+/** Picks one of the user's signatures for the message (or none). */
+function SignatureMenu({ c, disabled }: { c: Composer; disabled: boolean }) {
+  const { t } = useTranslation()
+  const signatures = useSettings((s) => s.signatures)
+  const has = c.content.html.includes('mv-signature')
+  return (
+    <Menu
+      label={t('signatures.pick')}
+      trigger={(p) => <IconButton icon="signature" label={t('signatures.pick')} disabled={disabled} {...p} />}
+      items={[
+        ...signatures.map((s) => ({
+          label: s.name,
+          icon: has && c.signatureId === s.id ? ('check' as const) : undefined,
+          onSelect: () => setSignature(c.id, s.id),
+        })),
+        ...(has ? [{ label: t('signatures.none'), icon: 'close' as const, onSelect: () => setSignature(c.id, null) }] : []),
+        { label: signatures.length ? t('signatures.manage') : t('signatures.create'), icon: 'settings' as const, onSelect: () => navigate('settings') },
+      ]}
+    />
+  )
+}
+
 function SaveState({ c }: { c: Composer }) {
   const { t } = useTranslation()
   if (c.saveState === 'saving') return <span className="body-small muted">{t('compose.saving')}</span>
@@ -332,6 +356,7 @@ function ComposerWindow({ c }: { c: Composer }) {
               }}
             />
             <IconButton icon="attach_file" label={t('compose.attach')} disabled={busy} onClick={() => fileInput.current?.click()} />
+            <SignatureMenu c={c} disabled={busy} />
             <input
               ref={fileInput}
               type="file"

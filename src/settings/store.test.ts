@@ -147,3 +147,31 @@ describe('IMAP accounts in the export file', () => {
     expect(parseSettingsJson(exportSettingsJson({ ...sample, accounts: [odd] })).accounts[0].imap?.rules).toEqual(imap.imap.rules)
   })
 })
+
+describe('signatures', () => {
+  it('round-trip through export and import, with account defaults', () => {
+    const s: Settings = {
+      ...sample,
+      signatures: [{ id: 's1', name: 'Work', html: '<b>A</b>' }],
+      signatureDefaults: { 'microsoft:abc': { id: 's1', replies: true } },
+    }
+    const back = parseSettingsJson(exportSettingsJson(s))
+    expect(back.signatures).toEqual(s.signatures)
+    expect(back.signatureDefaults).toEqual(s.signatureDefaults)
+  })
+
+  it('drop defaults for unknown accounts or deleted signatures, and unnamed or huge signatures', () => {
+    const s = {
+      ...sample,
+      signatures: [
+        { id: 's1', name: ' Work ', html: 'x' },
+        { id: 's2', name: '  ', html: 'y' },
+        { id: 's3', name: 'Huge', html: 'z'.repeat(30_000) },
+      ],
+      signatureDefaults: { 'microsoft:abc': { id: 's2', replies: false }, 'google:def': { id: 's1' }, 'imap:gone@x.com': { id: 's1', replies: true } },
+    } as unknown as Settings
+    const back = parseSettingsJson(exportSettingsJson(s))
+    expect(back.signatures).toEqual([{ id: 's1', name: 'Work', html: 'x' }])
+    expect(back.signatureDefaults).toEqual({ 'google:def': { id: 's1', replies: false } })
+  })
+})

@@ -4,6 +4,7 @@ import type { LanguagePref } from '../i18n'
 import { microsoftTenants, type MicrosoftTenantConfig } from '../config'
 import i18n from '../i18n'
 import { parseShortcuts, type Shortcut } from '../shell/shortcutData'
+import { parseSignatureDefaults, parseSignatures, type Signature, type SignatureDefault } from './signatureData'
 
 /**
  * Settings are the ONLY app data persisted on the device (plus the auth libraries' token caches).
@@ -124,6 +125,10 @@ export interface Settings {
   exportBridge: boolean
   /** Custom links under Notes in the navigation */
   shortcuts: Shortcut[]
+  /** Email signatures, shared by all accounts */
+  signatures: Signature[]
+  /** Per account id: the signature added by itself to new messages (and maybe replies) */
+  signatureDefaults: Record<string, SignatureDefault>
 }
 
 /** Calendar, tasks and contacts exist only for Google and Microsoft 365 accounts (not IMAP). */
@@ -177,6 +182,8 @@ export const defaultSettings: Settings = {
   weather: true,
   exportBridge: false,
   shortcuts: [],
+  signatures: [],
+  signatureDefaults: {},
 }
 
 interface SettingsActions {
@@ -188,6 +195,8 @@ interface SettingsActions {
   addTenant: (t: Omit<MicrosoftTenantConfig, 'key'>) => void
   renameTenant: (key: string, name: string) => void
   removeTenant: (key: string) => void
+  /** Removes a signature and any account default that used it */
+  removeSignature: (id: string) => void
   replaceAll: (settings: Settings) => void
   reset: () => void
 }
@@ -214,9 +223,12 @@ export const useSettings = create<Settings & SettingsActions>()(
       removeAccount: (id) => {
         const defaults = { ...get().defaults }
         for (const k of Object.keys(defaults) as (keyof Defaults)[]) if (defaults[k] === id) delete defaults[k]
+        const signatureDefaults = { ...get().signatureDefaults }
+        delete signatureDefaults[id]
         set({
           accounts: get().accounts.filter((a) => a.id !== id),
           defaults,
+          signatureDefaults,
           hiddenCalendars: get().hiddenCalendars.filter((k) => !k.startsWith(`${id}|`)),
           hiddenTaskLists: get().hiddenTaskLists.filter((k) => !k.startsWith(`${id}|`)),
         })
@@ -235,6 +247,11 @@ export const useSettings = create<Settings & SettingsActions>()(
         delete tenantNames[key]
         set({ customTenants: get().customTenants.filter((x) => x.key !== key), tenantNames })
       },
+      removeSignature: (id) =>
+        set({
+          signatures: get().signatures.filter((x) => x.id !== id),
+          signatureDefaults: Object.fromEntries(Object.entries(get().signatureDefaults).filter(([, d]) => d.id !== id)),
+        }),
       replaceAll: (settings) => set(settings),
       reset: () => set(defaultSettings),
     }),
@@ -272,6 +289,8 @@ export function pickSettings(s: Settings): Settings {
     bridge: s.bridge?.url ? { url: s.bridge.url, key: s.bridge.key ?? '' } : undefined,
     exportBridge: s.exportBridge ?? false,
     shortcuts: s.shortcuts ?? [],
+    signatures: s.signatures ?? [],
+    signatureDefaults: s.signatureDefaults ?? {},
   }
 }
 
@@ -322,6 +341,7 @@ export function parseSettingsJson(text: string): Settings {
   if (s.weekStart === 'monday' || s.weekStart === 'sunday' || s.weekStart === 'auto') out.weekStart = s.weekStart
   if (typeof s.weather === 'boolean') out.weather = s.weather
   out.shortcuts = parseShortcuts(s.shortcuts)
+  out.signatures = parseSignatures(s.signatures)
   if (isStr(s.mapsApiKey) && /^[\w-]{20,60}$/.test(s.mapsApiKey.trim())) out.mapsApiKey = s.mapsApiKey.trim()
   if (s.bridge && isStr(s.bridge.url) && /^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(s.bridge.url) && isStr(s.bridge.key)) {
     out.bridge = { url: s.bridge.url, key: s.bridge.key }
@@ -359,6 +379,7 @@ export function parseSettingsJson(text: string): Settings {
   }
   if (Array.isArray(s.hiddenCalendars)) out.hiddenCalendars = s.hiddenCalendars.filter((k) => isStr(k) && ids.has(k.split('|')[0]))
   if (Array.isArray(s.hiddenTaskLists)) out.hiddenTaskLists = s.hiddenTaskLists.filter((k) => isStr(k) && ids.has(k.split('|')[0]))
+  out.signatureDefaults = parseSignatureDefaults(s.signatureDefaults, ids, out.signatures)
   if (Array.isArray(s.imagesAllowedFrom)) out.imagesAllowedFrom = s.imagesAllowedFrom.filter(isStr)
   if (Array.isArray(s.customTenants)) {
     out.customTenants = s.customTenants
