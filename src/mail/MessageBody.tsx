@@ -41,22 +41,29 @@ export function MessageBody({ message }: { message: MailMessage }) {
     [message.bodyHtml, allowRemote, inlineUrls],
   )
 
+  const showQuotedRef = useRef(showQuoted)
+  showQuotedRef.current = showQuoted
+
   // Size the frame to its content, and keep it in sync with images loading or quotes toggling.
+  // Only re-attached when the document itself changes: toggling quotes doesn't reload the frame,
+  // so the observer must stay alive across toggles. The frame CSS forces html/body to height:auto,
+  // so the root's box height is the content height (scrollHeight never drops below the frame's).
   useEffect(() => {
     const f = frame.current
     if (!f) return
     let ro: ResizeObserver | undefined
     const measure = () => {
-      const doc = f.contentDocument
-      if (!doc?.documentElement) return
-      setHeight(Math.max(40, doc.documentElement.scrollHeight))
+      const root = f.contentDocument?.documentElement
+      if (!root) return
+      setHeight(Math.max(40, Math.ceil(root.getBoundingClientRect().height)))
     }
     const onLoad = () => {
       const doc = f.contentDocument
       if (!doc) return
       const q = doc.querySelector<HTMLElement>('.mv-quoted')
-      if (q) q.hidden = !showQuoted
+      if (q) q.hidden = !showQuotedRef.current
       measure()
+      ro?.disconnect()
       ro = new ResizeObserver(measure)
       ro.observe(doc.documentElement)
       doc.querySelectorAll('img').forEach((img) => img.addEventListener('load', measure))
@@ -66,7 +73,7 @@ export function MessageBody({ message }: { message: MailMessage }) {
       f.removeEventListener('load', onLoad)
       ro?.disconnect()
     }
-  }, [result.srcdoc, showQuoted])
+  }, [result.srcdoc])
 
   useEffect(() => {
     const q = frame.current?.contentDocument?.querySelector<HTMLElement>('.mv-quoted')

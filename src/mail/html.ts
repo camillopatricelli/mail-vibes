@@ -46,6 +46,8 @@ blockquote{margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex;}
 .mv-quoted[hidden]{display:none!important;}
 a{color:#1a73e8;}
 `
+/** Appended after the email's own styles so its html/body height rules can't break frame sizing. */
+const FRAME_SIZING_CSS = `html,body{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;}`
 
 const QUOTE_SELECTORS = ['.gmail_quote', '#divRplyFwdMsg', '#appendonsend', 'blockquote[type="cite"]', '.moz-cite-prefix']
 
@@ -127,7 +129,7 @@ export function sanitizeEmail(html: string, opts: SanitizeOptions): SanitizedEma
     if (!hasQuoted) wrap.replaceWith(...wrap.childNodes)
   }
 
-  const srcdoc = `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>${FRAME_CSS}</style><style>${styles.replace(/<\/style/gi, '')}</style></head><body>${container.innerHTML}</body></html>`
+  const srcdoc = `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>${FRAME_CSS}</style><style>${styles.replace(/<\/style/gi, '')}</style><style>${FRAME_SIZING_CSS}</style></head><body>${container.innerHTML}</body></html>`
   return { srcdoc, blockedImages: blocked, hasQuoted }
 }
 
