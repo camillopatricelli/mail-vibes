@@ -7,7 +7,8 @@ import { useSettings, type AccountSettings } from '../settings/store'
 import { useStatus } from '../status/store'
 import { isMailCapable, providerFor } from './api'
 import { rememberAddresses } from './addressBook'
-import type { Address, FolderKind, ListResult, ListTarget, MailMessage, MailSummary, MailTag } from './types'
+import { SearchRefusedError } from './imap/search'
+import type { Address, FolderKind, ListResult, ListTarget, MailMessage, MailSummary, MailTag, ThreadMember } from './types'
 
 export const PAGE_SIZE = 40
 
@@ -129,6 +130,8 @@ export function useMergedFolder(folder: ListTarget, onlyAccountId?: string, unre
       return {
         queryKey: listKey(a.id, folder, count, unread),
         queryFn: () => fetchList(a.id, folder, count, unread),
+        // A search the server refused won't work on a second try either.
+        retry: (n: number, e: Error) => !(e instanceof SearchRefusedError) && n < 3,
         refetchInterval: pollSec * 1000,
         refetchIntervalInBackground: true,
         placeholderData: keepPreviousData,
@@ -201,6 +204,34 @@ export function useThread(accountId: string | undefined, threadId: string | unde
       return ms
     },
   })
+}
+
+/** Members of a conversation that a whole-conversation action may touch. */
+export const conversationScope = {
+  /** Read state and tags: everything but what was thrown away */
+  all: (m: ThreadMember) => m.folderKind !== 'trash' && m.folderKind !== 'spam',
+  /**
+   * Moving: sent messages too (Gmail: they get the label and also stay in Sent), except into the
+   * Inbox, where your own replies don't belong; never drafts.
+   */
+  move: (dest: ListTarget) => (m: ThreadMember) =>
+    conversationScope.all(m) && m.folderKind !== 'drafts' && !m.isDraft && !(dest === 'inbox' && m.folderKind === 'sent'),
+}
+
+/**
+ * Every message of these conversations, not only those in the current list (e.g. your replies in
+ * Sent when looking at the Inbox), narrowed by `scope`. The listed messages are always included;
+ * if a conversation can't be loaded, only those are used.
+ */
+export async function wholeConversations(threads: ThreadSummary[], scope: (m: ThreadMember) => boolean): Promise<MailSummary[]> {
+  const parts = await Promise.all(
+    threads.map(async (th) => {
+      const members = await providerFor(th.accountId).threadMembers(th.accountId, th.threadId).catch(() => [])
+      const listed = new Set(th.messages.map((m) => m.id))
+      return [...th.messages, ...members.filter((m) => !listed.has(m.id) && scope(m))]
+    }),
+  )
+  return parts.flat()
 }
 
 export function useFolders(accountId: string | undefined) {

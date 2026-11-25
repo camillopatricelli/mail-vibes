@@ -102,6 +102,8 @@ describe('IMAP command arguments', () => {
     expect(encodeString('pass word"\\')).toBe('"pass word\\"\\\\"')
     expect(encodeString('')).toBe('""')
     expect(encodeString('NIL')).toBe('"NIL"')
+    expect(encodeString('100%')).toBe('"100%"')
+    expect(encodeString('report*')).toBe('"report*"')
     expect(encodeString('pässwörd')).toBeInstanceOf(Uint8Array)
   })
 

@@ -52,6 +52,9 @@ export interface MailMessage extends MailSummary {
   pec?: PecDetails
 }
 
+/** A message of a conversation and the well-known folder it sits in, if any. */
+export type ThreadMember = MailSummary & Pick<MailMessage, 'folderKind'>
+
 export interface PecDetails {
   /** A certified message, a receipt about a message the user sent, or a transport error */
   kind: 'message' | 'receipt' | 'error'
@@ -122,6 +125,8 @@ export interface DraftRef {
 export interface MailProvider {
   list(accountId: string, target: ListTarget, count: number, options?: ListOptions): Promise<ListResult>
   thread(accountId: string, threadId: string): Promise<MailMessage[]>
+  /** Every message of a conversation, in any folder, without bodies (for actions on the whole conversation) */
+  threadMembers(accountId: string, threadId: string): Promise<ThreadMember[]>
   setRead(accountId: string, ids: string[], read: boolean): Promise<void>
   setFlagged(accountId: string, ids: string[], flagged: boolean): Promise<void>
   /** Moves messages to a well-known folder or a folder id; may answer the messages' new ids (Outlook) */

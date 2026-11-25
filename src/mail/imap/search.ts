@@ -27,6 +27,14 @@ export function searchCriteria(q: string, light: boolean): Part[] | undefined {
   return parts
 }
 
+/** The server refused a search (a limit of the server, not a fault): the list says so gently. */
+export class SearchRefusedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SearchRefusedError'
+  }
+}
+
 /** "3:5,9" -> [3, 4, 5, 9] */
 export function expandUidSet(set: string): number[] {
   const out: number[] = []

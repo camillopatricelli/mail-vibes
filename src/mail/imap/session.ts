@@ -7,6 +7,7 @@ import { ImapClient, MailServerError } from './client'
 import { detectSpecial, parseList, type ListedFolder } from './folders'
 import { asList, asText } from './parse'
 import { forgetPassword, getPassword } from './passwords'
+import { SearchRefusedError } from './search'
 
 export interface Selected {
   path: string
@@ -160,7 +161,8 @@ class Session {
       return err
     }
     if (!quiet && err instanceof AuthRequiredError) status.reportError(this.accountId, 'auth', err.message)
-    else if (!quiet && !(e instanceof MailServerError)) status.reportError(this.accountId, 'api', err.message)
+    // A refused search says nothing about the account's health.
+    else if (!quiet && !(e instanceof MailServerError) && !(e instanceof SearchRefusedError)) status.reportError(this.accountId, 'api', err.message)
     return err
   }
 }

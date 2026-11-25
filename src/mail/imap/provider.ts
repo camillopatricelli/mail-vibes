@@ -9,11 +9,11 @@ import { isInbox, type ListedFolder } from './folders'
 import { folderId, folderPath, messageId, parseMessageId, parseThreadId, threadIdOf } from './ids'
 import { parseMessage, type ParsedMessage } from './message'
 import { originalSender, originalSubject, pecHeaders, pecView } from './pec'
-import type { CommandResult, Part } from './client'
+import { MailServerError, type CommandResult, type Part } from './client'
 import { asList, asText, encodeMailboxName, fetchAttributes, type ImapResponse } from './parse'
 import { isAppFolder, keywordToTag, tagToKeyword, timedFolderTime, timedPath, type Namespace, type TimedKind } from './keywords'
 import { formatKb, nearlyFull, storageUsage } from './quota'
-import { copiedUids, ruleCriteria, searchCriteria } from './search'
+import { copiedUids, ruleCriteria, searchCriteria, SearchRefusedError } from './search'
 import { getPassword, smtpKey } from './passwords'
 import { session, type Ctx, type Selected } from './session'
 import { rewriteHeaders, SmtpClient } from './smtp'
@@ -276,7 +276,13 @@ async function expunge(ctx: Ctx, uidSet: string) {
 async function searchMail(ctx: Ctx, accountId: string, target: { search: string; inbox?: boolean }, count: number, unread = false) {
   const criteria = searchCriteria(target.search, !!ctx.account.imap?.pec)
   if (!criteria) return { messages: [], hasMore: false }
-  return searchFolders(ctx, accountId, criteria, count, !!target.inbox, unread)
+  try {
+    return await searchFolders(ctx, accountId, criteria, count, !!target.inbox, unread)
+  } catch (e) {
+    // The server answered "NO"/"BAD": it can't do this search (e.g. some characters or words).
+    if (e instanceof MailServerError && e.kind === 'server') throw new SearchRefusedError(e.message)
+    throw e
+  }
 }
 
 async function searchFolders(ctx: Ctx, accountId: string, criteria: string | Part[], count: number, inboxOnly = false, unread = false) {
@@ -811,6 +817,44 @@ const scheduleMethods: Pick<MailProvider, 'scheduleDraft' | 'unschedule' | 'send
   },
 }
 
+/** The messages of a conversation, in whichever folders it spans (no bodies), oldest first. */
+async function threadSummaries(ctx: Ctx, accountId: string, threadId: string) {
+  const { special, list } = await ctx.folders()
+  const t = parseThreadId(threadId)
+  let summaries: MailSummary[] = []
+  if ('message' in t) {
+    const ref = parseMessageId(t.message)
+    summaries = await fetchByUid(ctx, accountId, ref.path, [ref.uid])
+  } else if (ctx.account.imap?.pec && threadMessages.get(cacheKey(accountId, threadId))?.size) {
+    // Receipts belong with the message they're about, usually among the latest in Sent: list
+    // those (a quick fetch, unlike a header search) so they join the conversation.
+    if (special.sent && Date.now() - (sentPrimed.get(accountId) ?? 0) > 120_000) {
+      await listFolder(ctx, accountId, special.sent, 100)
+      sentPrimed.set(accountId, Date.now())
+    }
+    for (const [path, ids] of groupByFolder([...threadMessages.get(cacheKey(accountId, threadId))!])) {
+      const box = await ctx.select(path)
+      const uids = ids.map(parseMessageId).filter((r) => r.uidValidity === box.uidValidity).map((r) => r.uid)
+      summaries.push(...(await fetchByUid(ctx, accountId, path, uids)))
+    }
+  } else {
+    const seen = threadFolders.get(cacheKey(accountId, threadId))
+    const where = new Set<string>([...(seen ?? []), 'INBOX', special.sent, special.archive].filter((p): p is string => !!p))
+    // Opened from an address without a list (e.g. a link): look in every folder.
+    if (!seen) for (const f of list) if (f.selectable && f.path !== special.trash && f.path !== special.spam) where.add(f.path)
+    const id = t.root.replace(/["\\]/g, '')
+    for (const path of where) {
+      await ctx.select(path)
+      const uids = await search(ctx, `OR HEADER Message-ID "${id}" HEADER References "${id}"`)
+      summaries.push(...(await fetchByUid(ctx, accountId, path, uids)))
+    }
+  }
+  // The same message can sit in two folders (e.g. a copy): keep one.
+  const unique = new Map<string, MailSummary>()
+  for (const s of summaries.sort((a, b) => a.date - b.date)) unique.set(`${s.from.email}|${s.date}|${s.subject}`, s)
+  return [...unique.values()]
+}
+
 // ---------- The adapter ----------
 
 export const imap: MailProvider = {
@@ -843,41 +887,9 @@ export const imap: MailProvider = {
 
   async thread(accountId, threadId) {
     return session(accountId).run(async (ctx) => {
-      const { special, list } = await ctx.folders()
-      const t = parseThreadId(threadId)
-      let summaries: MailSummary[] = []
-      if ('message' in t) {
-        const ref = parseMessageId(t.message)
-        summaries = await fetchByUid(ctx, accountId, ref.path, [ref.uid])
-      } else if (ctx.account.imap?.pec && threadMessages.get(cacheKey(accountId, threadId))?.size) {
-        // Receipts belong with the message they're about, usually among the latest in Sent: list
-        // those (a quick fetch, unlike a header search) so they join the conversation.
-        if (special.sent && Date.now() - (sentPrimed.get(accountId) ?? 0) > 120_000) {
-          await listFolder(ctx, accountId, special.sent, 100)
-          sentPrimed.set(accountId, Date.now())
-        }
-        for (const [path, ids] of groupByFolder([...threadMessages.get(cacheKey(accountId, threadId))!])) {
-          const box = await ctx.select(path)
-          const uids = ids.map(parseMessageId).filter((r) => r.uidValidity === box.uidValidity).map((r) => r.uid)
-          summaries.push(...(await fetchByUid(ctx, accountId, path, uids)))
-        }
-      } else {
-        const seen = threadFolders.get(cacheKey(accountId, threadId))
-        const where = new Set<string>([...(seen ?? []), 'INBOX', special.sent, special.archive].filter((p): p is string => !!p))
-        // Opened from an address without a list (e.g. a link): look in every folder.
-        if (!seen) for (const f of list) if (f.selectable && f.path !== special.trash && f.path !== special.spam) where.add(f.path)
-        const id = t.root.replace(/["\\]/g, '')
-        for (const path of where) {
-          await ctx.select(path)
-          const uids = await search(ctx, `OR HEADER Message-ID "${id}" HEADER References "${id}"`)
-          summaries.push(...(await fetchByUid(ctx, accountId, path, uids)))
-        }
-      }
-      // The same message can sit in two folders (e.g. a copy): keep one.
-      const unique = new Map<string, MailSummary>()
-      for (const s of summaries.sort((a, b) => a.date - b.date)) unique.set(`${s.from.email}|${s.date}|${s.subject}`, s)
+      const { special } = await ctx.folders()
       const out: MailMessage[] = []
-      for (const s of unique.values()) {
+      for (const s of await threadSummaries(ctx, accountId, threadId)) {
         const p = await loadParsed(ctx, accountId, s.id)
         const path = parseMessageId(s.id).path
         out.push({
@@ -896,6 +908,13 @@ export const imap: MailProvider = {
         })
       }
       return out
+    })
+  },
+
+  async threadMembers(accountId, threadId) {
+    return session(accountId).run(async (ctx) => {
+      const { special } = await ctx.folders()
+      return (await threadSummaries(ctx, accountId, threadId)).map((s) => ({ ...s, folderKind: kindOfPath(parseMessageId(s.id).path, special) }))
     })
   },
 

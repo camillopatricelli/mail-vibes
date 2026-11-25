@@ -320,6 +320,17 @@ export const outlook: MailProvider = {
       .sort((a, b) => a.date - b.date)
   },
 
+  async threadMembers(accountId, threadId) {
+    const [page, special] = await Promise.all([
+      graph<GraphPage<GMessage>>(
+        accountId,
+        `/me/messages?$filter=conversationId eq '${threadId.replace(/'/g, "''")}'&$top=200&$select=${SUMMARY_FIELDS},parentFolderId&${SNOOZE_EXPAND}`,
+      ),
+      specialFolderIds(accountId),
+    ])
+    return page.value.map((m) => ({ ...toSummary(accountId, m), folderKind: special.get(m.parentFolderId ?? '') }))
+  },
+
   async setRead(accountId, ids, read) {
     await batch(accountId, ids.map((id) => ({ method: 'PATCH', url: `/me/messages/${id}`, body: { isRead: read } })))
   },

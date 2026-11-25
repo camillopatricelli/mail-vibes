@@ -8,13 +8,20 @@ import { useStatus } from '../status/store'
 import type { MailLink, MailSource } from './mailLink'
 
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me'
+/**
+ * Outlook gives a message a new id when it moves to another folder; its "immutable" id stays.
+ * Links store that one, and lookups accept both kinds.
+ */
+const IMMUTABLE_ID = { Prefer: 'IdType="ImmutableId"' }
 
 /** The conversation of a linked email in one account, or undefined if the account doesn't have it. */
 async function findThread(accountId: string, provider: MailLink['provider'], id: string): Promise<string | undefined> {
   const missing = (e: unknown) => e instanceof ApiError && (e.status === 400 || e.status === 404)
   try {
     if (provider === 'microsoft') {
-      const m = await graph<{ conversationId: string }>(accountId, `/me/messages/${encodeURIComponent(id)}?$select=conversationId`)
+      const m = await graph<{ conversationId: string }>(accountId, `/me/messages/${encodeURIComponent(id)}?$select=conversationId`, {
+        headers: IMMUTABLE_ID,
+      })
       return m.conversationId
     }
     try {
@@ -61,6 +68,13 @@ export async function openMailLink(link: MailLink, taskAccountId: string) {
     return
   }
   const url = link.url
+  // Not found by id (e.g. an Outlook message moved before links kept the permanent id): look for
+  // its subject instead, which finds it wherever it is now.
+  const subject = link.subject?.replace(/"/g, '').trim()
+  if (subject && link.provider !== 'imap') {
+    toast({ tone: 'info', message: i18n.t('tasks.mailSearchingSubject') })
+    return goMail({ kind: 'search', q: subject })
+  }
   toast({
     tone: 'error',
     message: i18n.t('tasks.mailNotFound'),
@@ -87,10 +101,15 @@ export async function mailSource(m: MailSummary): Promise<MailSource> {
       url: `https://mail.google.com/mail/u/${encodeURIComponent(account?.email ?? '0')}/#all/${m.threadId}`,
     }
   let url = `https://outlook.office.com/mail/deeplink/read/${encodeURIComponent(m.id)}`
+  let id = m.id
   try {
-    url = (await graph<{ webLink?: string }>(m.accountId, `/me/messages/${encodeURIComponent(m.id)}?$select=webLink`)).webLink ?? url
+    const r = await graph<{ id?: string; webLink?: string }>(m.accountId, `/me/messages/${encodeURIComponent(m.id)}?$select=id,webLink`, {
+      headers: IMMUTABLE_ID,
+    })
+    url = r.webLink ?? url
+    id = r.id ?? id
   } catch {
-    // Keep the generic address.
+    // Keep the generic address and the current id.
   }
-  return { provider: 'microsoft', id: m.id, subject: m.subject, url }
+  return { provider: 'microsoft', id, subject: m.subject, url }
 }

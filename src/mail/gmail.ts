@@ -551,7 +551,17 @@ export const gmail: MailProvider = {
     }).sort((a, b) => a.date - b.date)
   },
 
-  setRead: (accountId, ids, read) => (read ? modify(accountId, ids, [], ['UNREAD']) : modify(accountId, ids, ['UNREAD'], [])),
+  async threadMembers(accountId, threadId) {
+    const t = await google<{ messages?: GMsg[] }>(
+      accountId,
+      `${API}/threads/${threadId}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject` +
+        '&fields=messages(id,threadId,labelIds,snippet,internalDate,payload(mimeType,headers))',
+    )
+    const labels = await labelsFor(accountId, t.messages ?? [])
+    return (t.messages ?? []).map((m) => ({ ...toSummary(accountId, m, labels), folderKind: kindOf(m.labelIds ?? []) }))
+  },
+
+  setRead: (accountId, ids, read) => (read ?modify(accountId, ids, [], ['UNREAD']) : modify(accountId, ids, ['UNREAD'], [])),
 
   setFlagged: (accountId, ids, flagged) =>
     flagged ? modify(accountId, ids, ['STARRED'], []) : modify(accountId, ids, [], ['STARRED']),

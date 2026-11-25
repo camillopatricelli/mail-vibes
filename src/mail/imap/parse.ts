@@ -259,7 +259,8 @@ export function capabilitiesOf(r: ImapResponse): string[] | undefined {
  * long text) a literal, returned as bytes for the client to send after the server's "+".
  */
 export function encodeString(s: string): string | Uint8Array {
-  if (/^[\x21\x23-\x27\x2a-\x5b\x5d-\x7a\x7c\x7e]+$/.test(s) && s.toUpperCase() !== 'NIL') return s
+  // Atom characters: not % and * (wildcards), which strict servers refuse unquoted (RFC 3501 §9).
+  if (/^[\x21\x23\x24\x26\x27\x2b-\x5b\x5d-\x7a\x7c\x7e]+$/.test(s) && s.toUpperCase() !== 'NIL') return s
   if (/^[\x20-\x7e]*$/.test(s) && s.length < 1000) return `"${s.replace(/["\\]/g, '\\$&')}"`
   return new TextEncoder().encode(s)
 }

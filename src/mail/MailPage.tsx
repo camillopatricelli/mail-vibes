@@ -15,7 +15,21 @@ import { AttachmentList } from './Attachments'
 import { defaultSendAccount, openDraft, openForwardFrom, openNew, openReply } from './compose'
 import { PecBox } from './imap/PecBox'
 import i18n from '../i18n'
-import { mailActions, refreshAccountMail, useAllFolders, useAllTags, useFolders, useMergedFolder, useThread, useUnreadCounts, type ThreadSummary } from './data'
+import {
+  conversationScope,
+  mailActions,
+  refreshAccountMail,
+  useAllFolders,
+  useAllTags,
+  useFolders,
+  useMergedFolder,
+  useThread,
+  useUnreadCounts,
+  wholeConversations,
+  type ThreadSummary,
+} from './data'
+import type { ThreadMember } from './types'
+import { SearchRefusedError } from './imap/search'
 import { TagChip, TagDialog, tagColor } from './Tags'
 import { MailTaskDialog } from '../tasks/MailTaskDialog'
 import { AddressMenu } from './AddressMenu'
@@ -265,6 +279,11 @@ function itemsOf(threads: ThreadSummary[]) {
   return threads.flatMap((th) => th.messages.map((m) => ({ accountId: m.accountId, id: m.id })))
 }
 
+/** All messages of these conversations for an action (see wholeConversations); in the Bin and Spam, only those listed there. */
+function conversationItems(folder: UiFolder, threads: ThreadSummary[], scope: (m: ThreadMember) => boolean) {
+  return folder === 'trash' || folder === 'spam' ? Promise.resolve(threads.flatMap((th) => th.messages)) : wholeConversations(threads, scope)
+}
+
 function SyncStatus({ accounts }: { accounts: AccountSettings[] }) {
   const { t } = useTranslation()
   const status = useStatus((s) => s.accounts)
@@ -441,7 +460,11 @@ function ThreadRow({
         <IconButton
           icon={th.unread ? 'mark_email_read' : 'mark_email_unread'}
           label={th.unread ? t('mail.markRead') : t('mail.markUnread')}
-          onClick={() => void mailActions.setRead(th.unread ? items : [items[items.length - 1]], th.unread)}
+          onClick={() =>
+            void (th.unread
+              ? conversationItems(folder, [th], conversationScope.all).then((ms) => mailActions.setRead(ms, true))
+              : mailActions.setRead([items[items.length - 1]], false))
+          }
         />
         {folder !== 'drafts' && folder !== 'scheduled' && <IconButton icon="drive_file_move" label={t('mail.moveTo')} onClick={() => dialogs.onMove(th)} />}
         <IconButton icon="label" label={t('tags.action')} onClick={() => dialogs.onTags(th)} />
@@ -572,7 +595,7 @@ function MailList({ view }: { view: MailView }) {
     onReschedule: (th) => setRescheduling([th]),
     onSnooze: (th) => setSnoozing([th]),
     onMove: setRowMove,
-    onTags: (th) => setTagging(th.messages),
+    onTags: (th) => void conversationItems(folder, [th], conversationScope.all).then(setTagging),
     onTask: (th) => setTaskFrom([...th.messages].reverse().find((m) => !m.isDraft) ?? null),
   }
   const viewKey = mailHref(view)
@@ -652,16 +675,28 @@ function MailList({ view }: { view: MailView }) {
               </>
             )}
             {canSnooze(folder) && <IconButton icon="snooze" label={folder === 'snoozed' ? t('mail.resnooze') : t('mail.snooze')} onClick={() => setSnoozing(sel)} />}
-            <IconButton icon="mark_email_read" label={t('mail.markRead')} onClick={() => void mailActions.setRead(selItems, true).then(clear)} />
+            <IconButton
+              icon="mark_email_read"
+              label={t('mail.markRead')}
+              onClick={() => void conversationItems(folder, sel, conversationScope.all).then((ms) => mailActions.setRead(ms, true)).then(clear)}
+            />
             <IconButton icon="mark_email_unread" label={t('mail.markUnread')} onClick={() => void mailActions.setRead(selItems, false).then(clear)} />
             <IconButton icon="drive_file_move" label={t('mail.moveTo')} onClick={() => setMoving(true)} />
-            <IconButton icon="label" label={t('tags.action')} onClick={() => setTagging(sel.flatMap((th) => th.messages))} />
+            <IconButton icon="label" label={t('tags.action')} onClick={() => void conversationItems(folder, sel, conversationScope.all).then(setTagging)} />
             <span className="body-medium list-toolbar__count">{t('mail.selected', { count: sel.length })}</span>
           </>
         )}
       </div>
 
-      {errors.map(({ account, error, refetch }) => (
+      {errors.map(({ account, error, refetch }) =>
+        error instanceof SearchRefusedError ? (
+          <div key={account.id} className="banner banner--info list-error" role="status">
+            <Icon name="info" />
+            <div className="banner__text">
+              <p className="body-medium">{t('mail.searchRefused', { account: account.email })}</p>
+            </div>
+          </div>
+        ) : (
         <div key={account.id} className="banner banner--error list-error" role="alert">
           <Icon name="error" />
           <div className="banner__text">
@@ -671,13 +706,14 @@ function MailList({ view }: { view: MailView }) {
             {t('banner.retry')}
           </Button>
         </div>
-      ))}
+        ),
+      )}
 
       {isLoading && !threads.length ? (
         <div className="list-loading">
           <Spinner label={t('mail.loading')} />
         </div>
-      ) : !threads.length && !errors.length ? (
+      ) : !threads.length && errors.every((e) => e.error instanceof SearchRefusedError) ? (
         <EmptyState icon={view.kind === 'well' ? folderIcons[view.folder] : view.kind === 'tag' ? 'label' : view.kind === 'search' ? 'search' : 'folder'} title={unread ? t('mail.noUnreadHere') : view.kind === 'search' ? t('search.noMail') : t('mail.empty')} />
       ) : (
         <ul className="thread-list">
@@ -715,7 +751,9 @@ function MailList({ view }: { view: MailView }) {
         accountIds={[...new Set(sel.map((s) => s.accountId))]}
         onPick={(dest, name) => {
           setMoving(false)
-          void mailActions.moveTo(selItems, dest, name).then(clear)
+          void conversationItems(folder, sel, conversationScope.move(dest))
+            .then((ms) => mailActions.moveTo(ms, dest, name))
+            .then(clear)
         }}
       />
       <SnoozeDialog
@@ -744,7 +782,7 @@ function MailList({ view }: { view: MailView }) {
         onPick={(dest, name) => {
           const th = rowMove
           setRowMove(null)
-          if (th) void mailActions.moveTo(itemsOf([th]), dest, name)
+          if (th) void conversationItems(folder, [th], conversationScope.move(dest)).then((ms) => mailActions.moveTo(ms, dest, name))
         }}
       />
       {taskFrom && <MailTaskDialog message={taskFrom} onClose={() => setTaskFrom(null)} />}
@@ -963,7 +1001,7 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
         {movable.length > 0 && canSnooze(folder) && (
           <IconButton icon="snooze" label={snoozedHere.length ? t('mail.resnooze') : t('mail.snooze')} onClick={() => setSnoozingThread(true)} />
         )}
-        {movable.length > 0 && <IconButton icon="drive_file_move" label={t('mail.moveTo')} onClick={() => setMoving(true)} />}
+        {messages.some(conversationScope.move('archive')) && <IconButton icon="drive_file_move" label={t('mail.moveTo')} onClick={() => setMoving(true)} />}
         <IconButton icon="label" label={t('tags.action')} onClick={() => setTagging(true)} />
         {latest && !latest.isDraft && <IconButton icon="add_task" label={t('tasks.addFromMail')} onClick={() => setTaskFrom(latest)} />}
         <span className="spacer" />
@@ -1043,7 +1081,8 @@ function ThreadView({ view, accountId, threadId }: { view: MailView; accountId: 
         accountIds={[accountId]}
         onPick={(dest, name) => {
           setMoving(false)
-          void mailActions.moveTo(movable, dest, name).then(back)
+          // Your replies in Sent go along too (see conversationScope.move).
+          void mailActions.moveTo(messages.filter(conversationScope.move(dest)), dest, name).then(back)
         }}
       />
     </div>
