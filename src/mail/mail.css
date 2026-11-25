@@ -84,7 +84,8 @@
   border-bottom: 1px solid var(--md-sys-color-outline-variant);
   background: var(--md-sys-color-surface-container-low);
 }
-.thread-row.is-unread { background: var(--md-sys-color-surface); }
+/* Unread: an accent tint behind the row (the left border is the account colour), so they stand out from read rows at a glance. */
+.thread-row.is-unread { background: color-mix(in srgb, var(--md-sys-color-primary) 16%, var(--md-sys-color-surface)); }
 .thread-row.is-selected { background: var(--md-sys-color-secondary-container); }
 .thread-row:hover { box-shadow: inset 1px 0 0 var(--md-sys-color-outline-variant), inset -1px 0 0 var(--md-sys-color-outline-variant), 0 1px 2px 0 rgb(60 64 67 / 0.3), 0 1px 3px 1px rgb(60 64 67 / 0.15); z-index: 1; }
 .thread-row__check { width: 18px; height: 18px; margin: 0 6px; flex: none; }
@@ -108,9 +109,11 @@
 .thread-row__text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thread-row__meta { display: flex; align-items: center; gap: 8px; flex: none; color: var(--md-sys-color-on-surface-variant); }
 .thread-row__date { min-width: 52px; text-align: right; }
+/* Read rows recede (softer text); unread rows are bold and in the accent colour. */
+.thread-row__senders, .thread-row__subject { color: var(--md-sys-color-on-surface-variant); }
 .thread-row.is-unread .thread-row__senders,
 .thread-row.is-unread .thread-row__subject,
-.thread-row.is-unread .thread-row__date { font-weight: 700; color: var(--md-sys-color-on-surface); }
+.thread-row.is-unread .thread-row__date { font-weight: 700; color: var(--md-sys-color-primary); }
 .thread-row__actions { display: none; position: absolute; right: 8px; top: 0; bottom: 0; align-items: center; gap: 2px; padding-left: 16px; background: inherit; }
 @media (hover: hover) {
   .thread-row:hover .thread-row__actions { display: flex; }
