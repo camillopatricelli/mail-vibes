@@ -154,14 +154,15 @@ export function describeGmail(f: GFilter, labelName: (id: string) => string) {
 const isScopeError = (e: unknown) => e instanceof AuthRequiredError || (e instanceof ApiError && e.status === 403)
 
 async function gmailLabelNames(accountId: string) {
-  const r = await google<{ labels?: { id: string; name: string }[] }>(accountId, `${GMAIL}/labels`)
-  return new Map((r.labels ?? []).map((l) => [l.id, l.name]))
+  const r = await google<{ labels?: { id: string; name: string }[] } | undefined>(accountId, `${GMAIL}/labels`)
+  return new Map((r?.labels ?? []).map((l) => [l.id, l.name]))
 }
 
 async function listGmail(accountId: string): Promise<RuleList> {
   let filters: GFilter[]
   try {
-    filters = (await google<{ filter?: GFilter[] }>(accountId, `${GMAIL}/settings/filters`, { quiet: true })).filter ?? []
+    // An account without filters gets an empty answer (no JSON at all).
+    filters = (await google<{ filter?: GFilter[] } | undefined>(accountId, `${GMAIL}/settings/filters`, { quiet: true }))?.filter ?? []
   } catch (e) {
     // 403: the token predates the filters permission (or it wasn't ticked).
     if (e instanceof ApiError && e.status === 403) return { rules: [], needsConsent: true }
